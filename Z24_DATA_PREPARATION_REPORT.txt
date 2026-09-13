@@ -3,54 +3,56 @@ Z24 DATA SURVEY AND PREPARATION REPORT
 
 1. Objective
 -----------
-Survey the Z24 raw data and build a Python/Jupyter pipeline to read signals, validate quality, create fixed-length windows, split the data, and export model-ready files.
+Survey the Z24 Progressive Damage Test (PDT) recordings and build a Python/Jupyter pipeline that validates MATLAB signals, preserves the documented condition labels, removes invalid samples, segments the recordings, and exports model-ready CSV files.
 
 2. Raw data
 -----------
-- Main file: raw_data/sources-Z24-004.zip (approximately 10.5 GB).
-- Documentation: doc/Knowledge_based.pdf.
-- Nested structure: outer ZIP -> Z24ems1/2/3.zip -> session ZIP (for example 01C14.zip) -> channel `.aaa` files (for example 01C1403.aaa).
-- PDT packages contain `.mat` and `.aaa` files. The readme states that `.mat` files contain `data` and `labelshulp`. Sampling frequency is 100 Hz.
-- `.aaa` files contain one channel as text: header, sample count, time step, signal values, and a footer describing units, acquisition segments, and settings.
+- Main file: `raw_data/sources-Z24-004.zip` (approximately 10.5 GB).
+- Documentation: `doc/Knowledge_based.pdf`.
+- The archive contains two PDT packages: `pdt_01-08.zip` and `pdt_09_17.zip`.
+- Each PDT package contains condition folders 01--17, `avt` and `fvt` measurement folders, setup folders, and MATLAB `.mat` files.
+- Each MATLAB file is expected to contain `data` and `labelshulp`; the documented sampling frequency is 100 Hz.
 
 3. Raw-data issue
 -----------------
-The outer ZIP is truncated. `Z24ems3.zip` is shorter than its declared size by at least approximately 88 MB. The pipeline does not modify raw data and skips that incomplete member. The ZIP should be re-downloaded or completed before final export.
+The outer archive is truncated after the PDT members: the later `Z24ems3.zip` member is incomplete by approximately 88 MB. The PDT cleaner ignores EMS members and does not modify the raw archive. Re-download the archive before the final completeness check.
 
-4. Source files
----------------
-- `z24_prepare.py`: ZIP reader, `.aaa` parser, windowing, splitting, normalization, and CSV export.
-- `notebooks/Z24_prepare_training.ipynb`: pipeline execution, CSV preview, batch reader, and charts.
-- `requirements.txt`: dependencies for a new machine.
-- `Z24_USER_GUIDE.md`: usage instructions and limitations.
+4. Project files
+----------------
+- `prepare_pdt.py`: ZIP reader, MATLAB parser, finite-value cleaning, segmentation, PDT label mapping, and CSV export.
+- `notebooks/PDT_cleaning.ipynb`: separate AVT/FVT full-export configuration and validation cells.
+- `requirements.txt`: Python dependencies.
+- `Z24_USER_GUIDE.md`: operating instructions and limitations.
 
-Install with `python -m pip install -r requirements.txt` from the `AI` folder.
+Install with `python -m pip install -r requirements.txt` from the project folder.
 
 5. Processing pipeline
 ----------------------
-`inventory` reads outer ZIP headers and records names, sizes, offsets, and completeness. It is read-only. `prepare` selects complete EMS packages, opens sessions, reads numeric `.aaa` channels, validates sample count/time step/finite values, and stops signal parsing at `Timehistories end here`.
+The cleaner opens the two PDT packages, parses each condition/setup/measurement path, and loads `data` plus `labelshulp`. Rows containing NaN or infinity are removed. The first 60,000 finite samples are retained and divided into ten consecutive segments of 6,000 samples. The notebook exports both AVT and FVT separately; the function can be limited to one measurement type when needed.
 
-At 100 Hz, each 10-second window contains 1,000 samples. Incomplete tails and constant windows are dropped. Sessions are split approximately 70% train, 15% validation, and 15% test; all channels/windows from a session stay together. Train-only per-channel mean and standard deviation are then applied to every split.
+The condition directory supplies the class label. The mapping is explicit and reproducible: `label = condition_id - 1`, giving labels 0--16 for the 17 documented scenarios. Channel names are preserved per setup because channel order and count can differ between setups.
 
-Each session/channel is exported as CSV with columns `start_sample, sample_0, ..., sample_999`. `start_sample` is metadata for traceability; sample columns are the model input.
+6. Output format
+----------------
+Each segment is written to `processed/avt/<run-name>/segments/*.csv` or `processed/fvt/<run-name>/segments/*.csv`. A CSV has one row per time sample, a `sample_index` column, and one column per sensor channel. `manifest.json` records the source, condition, label, setup, measurement, segment index, sample count, and channel names. `labels.csv` contains the complete condition-to-label table, and `report.json` records counts and issues.
 
-6. Smoke-test result
+7. Smoke-test result
 --------------------
-With `MAX_SESSIONS = 20`: 20 sessions, 160 CSV shards, and 10,400 windows. Train contains 7,800 windows from 15 sessions; validation contains 1,040 windows from 2 sessions; test contains 1,560 windows from 3 sessions. Shape, dtype, finite-value, and session-isolation checks passed.
+The full PDT export completed successfully: 306 recordings (153 AVT and 153 FVT) across conditions 01--17 produced 3,060 CSV segments (ten segments per recording), each containing 6,000 finite samples. No processing issues were reported. Manifest and CSV-count checks passed.
 
-7. Labels and model evaluation
-------------------------------
-The current data has no verified healthy/damaged label column. Accuracy, precision, recall, F1, and a confusion matrix cannot be computed for damage classification until labels are joined by session/channel. Autoencoders or self-supervised models can be tested without class labels, but reconstruction loss alone does not validate damage detection.
+8. Model-evaluation considerations
+----------------------------------
+For multiclass classification, retain all 17 scenario labels. Conditions 1, 2, and 8 are reference or transition scenarios; any healthy/damaged binary grouping must be defined explicitly. Split at the setup or recording level before training so rows from one recording cannot leak across train and test. Compute normalization statistics from the training split only.
 
-8. Required next steps
+9. Required next steps
 ----------------------
-1. Complete or re-download the outer ZIP.
-2. Confirm units, sensor locations, and acquisition-segment boundaries from documentation and `.aaa` footers.
-3. Create a verified status-label table for each session.
-4. Process all complete sessions and review charts.
-5. Choose a time/condition-aware session split and recompute normalization using its training subset.
-6. Train and evaluate only after labels and the evaluation split are confirmed.
+1. Re-download or complete the outer ZIP.
+2. Review units, sensor locations, and acquisition boundaries in the PDT documentation.
+3. Run the notebook with `MAX_CONDITIONS = None` and `MAX_SETUPS = None`.
+4. Review class counts and CSV charts.
+5. Define the final split and class mapping with the supervisor.
+6. Train and evaluate the model after the labels and split are fixed.
 
-9. Conclusion
--------------
-The pipeline converts complete EMS channel signals into validated, normalized CSV windows and keeps session-level split isolation. The incomplete ZIP and missing verified labels currently prevent a defensible damage-classification result.
+10. Conclusion
+--------------
+The project now contains a PDT-only cleaning pipeline. It produces labeled, cleaned, human-readable CSV segments while retaining source and sensor metadata. The incomplete mixed archive and the final class-grouping decision remain the two limitations to resolve before final training.

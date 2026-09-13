@@ -1,44 +1,40 @@
-# Z24: prepare data with Jupyter
+# Z24 PDT data preparation
 
-On a new machine, open a terminal in the `AI` folder and run `python -m pip install -r requirements.txt`. Open `notebooks/Z24_prepare_training.ipynb` in Jupyter or VS Code and select the Python kernel that has these dependencies. The data reader is in `z24_prepare.py`; this `.aaa` pipeline does not require SciPy.
+This project keeps the Z24 Progressive Damage Test (PDT) MATLAB recordings. The old EMS (`.aaa`) cleaning pipeline, notebook, and generated files have been removed. The source ZIP is retained because it also contains the PDT packages and is treated as read-only.
 
-## Scope
+## Install and run
 
-The notebook processes numeric-suffix `.aaa` channels in the EMS group. Each example is one channel over 10 seconds. PDT, `car.aaa`, and multi-sensor stacking are not processed. `.env` files and `.aaa` footers are retained in the manifest.
+From the project folder, install the dependencies:
 
-The outer ZIP is truncated: `Z24ems3.zip` is skipped and only complete preceding packages are read. ZIP CRCs are checked when members are read. Raw data is never modified.
+```bash
+python -m pip install -r requirements.txt
+```
 
-## Configuration
+Open `notebooks/PDT_cleaning.ipynb` in Jupyter or VS Code and select that Python environment. The notebook imports `prepare_pdt.py` and is configured to export all available PDT conditions and setups. The smoke test remains as an optional commented example.
 
-`MAX_SESSIONS = 20` is a pipeline smoke test, not the final dataset. Set it to `None` to process every session in complete EMS packages. Complete or re-download the ZIP before producing the final dataset.
+## Input structure
 
-`WINDOW_SECONDS = 10` creates 1,000 samples per example at 100 Hz. Every run creates a new folder under `processed`; if the timestamp already exists, a numeric suffix is added.
+The reader opens `raw_data/sources-Z24-004.zip`, then the two PDT members `pdt_01-08.zip` and `pdt_09_17.zip`. Each member contains condition folders 01--17, measurement folders (`avt` and `fvt`), setup folders, and `.mat` recordings. Every MATLAB file must contain `data` and `labelshulp`; the documented sampling rate is 100 Hz.
 
-## Validation and normalization
+The outer ZIP currently ends before the complete `Z24ems3.zip` member. This does not affect the PDT members that appear before it, but the archive should be re-downloaded before a final completeness check.
 
-The parser reads sample count and time step from the header and only reads signal values before `Timehistories end here`. Recordings with a wrong count, time step, NaN, or infinity are rejected. Constant windows and incomplete tails shorter than 10 seconds are dropped.
+## Cleaning and labels
 
-No spike removal, frequency filtering, per-window centering, or label inference is performed. Per-channel mean and standard deviation are computed from train only, then applied to validation and test. Sessions are assigned approximately 70/15/15 by a deterministic hash; every channel and window from one session remains in the same split.
+`clean_pdt()` reads each selected MATLAB recording, removes rows containing NaN or infinity, keeps the first 60,000 finite samples, and writes ten consecutive 6,000-sample CSV segments. The condition directory is the label source: `label = condition_id - 1`. No label is guessed from signal values. Channel names are stored in `manifest.json` and remain associated with their setup.
 
-## Output
+The full notebook run uses both AVT and FVT. Pass `measurement="avt"` or `measurement="fvt"` when only one measurement type is required. A smoke test with one condition and one setup produces ten CSV files; a full export of both measurement types can produce up to `17 x 9 x 2 x 10 = 3,060` segments.
 
-- `train/`, `val/`, `test/`: one CSV per session/channel. Each row is one window; `start_sample` is the original offset and `sample_0` through `sample_999` are the normalized signal. `read_windows_csv` returns sample columns as `X` with shape `(n_windows, 1000, 1)` and dtype `float32`.
-- `manifest.json`: source, session, channel, sampling rate, headers, footers, ENV text, window counts, and rejected data.
-- `normalization.json`: train-only count, mean, and standard deviation per channel.
-- `report.json`: run scope, counts, and issues.
+## Output files
 
-The notebook generator reads shards and yields batches without loading the complete dataset into RAM. The example selects one channel; channels are not assumed to be interchangeable.
+- `processed/avt/<run-name>/segments/*.csv`: AVT segments.
+- `processed/fvt/<run-name>/segments/*.csv`: FVT segments.
+- Each `segments/*.csv` has one row per time sample, with `sample_index` and one column per sensor channel.
+- `manifest.json`: source file, condition, label, setup, measurement, segment position, channel count, and channel names for every CSV.
+- `labels.csv`: the documented condition-to-label table.
+- `report.json`: processing scope, counts, and skipped or invalid recordings.
 
-## Before final training
+CSV is human-readable and can be reviewed in VS Code or loaded with NumPy/Pandas. For model training, read the sensor columns and convert them to tensors in the training code.
 
-There is no `y` label yet. A verified label table is required for damage classification. Do not assume all EMS recordings are healthy. Autoencoder or self-supervised experiments are possible, but reconstruction loss alone does not prove damage detection quality.
+## Before training
 
-Sample footers report units in g and multiple `Segment #...` acquisitions. The notebook currently windows consecutive sample indices without verifying segment boundaries or gaps. Review the footer and avoid windows crossing acquisition gaps before final analysis.
-
-## Smoke-test result
-
-With 20 sessions: 160 CSV shards and 10,400 windows (train 7,800; validation 1,040; test 1,560). Shape, dtype, finite-value, and session-isolation checks passed. This validates the pipeline on a sample, not the complete dataset.
-
-## Reviewing CSV
-
-CSV files can be opened directly in VS Code, although each row has 1,001 columns. The notebook preview shows sample values and the chart cells plot one window, three windows, and a histogram. CSV values are normalized and no longer in the original g unit. JSON files retain metadata and reports.
+Conditions 1, 2, and 8 are reference or transition scenarios. Keep all 17 labels for multiclass classification, or define an explicit rule before combining them into healthy/damaged classes. Confirm sensor units and acquisition boundaries from `doc/Knowledge_based.pdf` before creating windows that cross a gap.
