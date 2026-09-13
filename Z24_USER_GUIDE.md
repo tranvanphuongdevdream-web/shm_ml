@@ -10,6 +10,8 @@ From the project folder, install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
+If the raw archive is not included in the repository, follow [DATA_SETUP_GUIDE.md](DATA_SETUP_GUIDE.md) to download it from Google Drive and place it in `raw_data/`.
+
 Open `notebooks/PDT_cleaning.ipynb` in Jupyter or VS Code and select that Python environment. AVT and FVT have separate execution cells, so run only the measurement you need.
 
 ## Input structure
