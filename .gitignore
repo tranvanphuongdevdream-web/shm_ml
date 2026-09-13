@@ -1,0 +1,15 @@
+# Raw and generated data are kept outside GitHub.
+raw_data/
+processed/
+
+# Local Python environments and caches.
+.python_packages/
+.matplotlib/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Local editor and OS files.
+.vscode/
+.idea/
+*.log
