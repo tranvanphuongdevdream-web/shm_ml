@@ -10,7 +10,7 @@ From the project folder, install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Open `notebooks/PDT_cleaning.ipynb` in Jupyter or VS Code and select that Python environment. The notebook imports `prepare_pdt.py` and is configured to export all available PDT conditions and setups. The smoke test remains as an optional commented example.
+Open `notebooks/PDT_cleaning.ipynb` in Jupyter or VS Code and select that Python environment. AVT and FVT have separate execution cells, so run only the measurement you need.
 
 ## Input structure
 
@@ -20,9 +20,9 @@ The outer ZIP currently ends before the complete `Z24ems3.zip` member. This does
 
 ## Cleaning and labels
 
-`clean_pdt()` reads each selected MATLAB recording, removes rows containing NaN or infinity, keeps the first 60,000 finite samples, and writes ten consecutive 6,000-sample CSV segments. The condition directory is the label source: `label = condition_id - 1`. No label is guessed from signal values. Channel names are stored in `manifest.json` and remain associated with their setup.
+`clean_pdt()` reads each selected MATLAB recording, removes rows containing NaN or infinity, keeps all remaining finite samples, and writes consecutive 6,000-sample CSV segments. The final segment keeps its remaining samples even when it is shorter than 6,000. The condition directory is the label source: `label = condition_id - 1`. No label is guessed from signal values. Channel names are stored in `manifest.json` and remain associated with their setup.
 
-The full notebook run uses both AVT and FVT. Pass `measurement="avt"` or `measurement="fvt"` when only one measurement type is required. A smoke test with one condition and one setup produces ten CSV files; a full export of both measurement types can produce up to `17 x 9 x 2 x 10 = 3,060` segments.
+The notebook can process AVT and FVT independently. With the current recordings, each recording produces ten full 6,000-sample segments plus one shorter final segment. Progress is printed after every recording.
 
 ## Output files
 
@@ -32,6 +32,7 @@ The full notebook run uses both AVT and FVT. Pass `measurement="avt"` or `measur
 - `manifest.json`: source file, condition, label, setup, measurement, segment position, channel count, and channel names for every CSV.
 - `labels.csv`: the documented condition-to-label table.
 - `report.json`: processing scope, counts, and skipped or invalid recordings.
+- `status.json`: live progress; `running` means the run is incomplete and `complete` means `report.json` is ready.
 
 CSV is human-readable and can be reviewed in VS Code or loaded with NumPy/Pandas. For model training, read the sensor columns and convert them to tensors in the training code.
 

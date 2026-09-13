@@ -140,20 +140,24 @@ def _write_segment(path: Path, values: np.ndarray):
 
 
 def clean_pdt(archive, output, measurement="avt", max_conditions=None,
-              max_setups=None, target_samples=60000, segment_samples=6000):
+              max_setups=None, target_samples=None, segment_samples=6000,
+              progress=False):
     """Clean PDT MAT files and export labeled CSV segments.
 
     One output row is one time sample and one output CSV is one segment. The
     condition directory is the label source; no label is inferred from signal
-    values. By default only AVT is used, yielding up to 17 * 9 * 10 segments.
+    values. All finite samples are kept when target_samples is None. The final
+    segment may therefore be shorter than segment_samples.
     """
     archive, output = Path(archive), Path(output)
     if output.exists():
         raise FileExistsError(f"Output already exists: {output}")
     if measurement not in {"avt", "fvt", "both"}:
         raise ValueError("measurement must be 'avt', 'fvt', or 'both'")
-    if target_samples <= 0 or segment_samples <= 0 or target_samples % segment_samples:
-        raise ValueError("target_samples must be a positive multiple of segment_samples")
+    if target_samples is not None and target_samples <= 0:
+        raise ValueError("target_samples must be positive or None")
+    if segment_samples <= 0:
+        raise ValueError("segment_samples must be positive")
     if max_conditions is not None and max_conditions <= 0:
         raise ValueError("max_conditions must be positive or None")
     if max_setups is not None and max_setups <= 0:
@@ -163,6 +167,15 @@ def clean_pdt(archive, output, measurement="avt", max_conditions=None,
     for folder in ("segments",):
         (output / folder).mkdir()
     records, issues = [], []
+    status_path = output / "status.json"
+    status = {
+        "status": "running",
+        "measurement": measurement,
+        "recordings_processed": 0,
+        "segments_written": 0,
+        "current_source": None,
+    }
+    status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
     condition_limit = set(range(1, max_conditions + 1)) if max_conditions else set(range(1, 18))
     package_names = ("pdt_01-08.zip", "pdt_09_17.zip")
     for package_name in package_names:
@@ -181,13 +194,20 @@ def clean_pdt(archive, output, measurement="avt", max_conditions=None,
                             continue
                         if max_setups is not None and setup > max_setups:
                             continue
+                        source = f"{package_name}::{item.filename}"
+                        status["current_source"] = source
+                        status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
+                        if progress:
+                            print(f"[READ] {source}", flush=True)
                         data, channel_names = _read_mat(package.read(item))
                         finite = np.isfinite(data).all(axis=1)
                         clean = data[finite]
-                        if len(clean) < target_samples:
-                            raise ValueError(f"Only {len(clean)} finite rows; need {target_samples}")
-                        clean = clean[:target_samples]
-                        for segment_index, start in enumerate(range(0, target_samples, segment_samples)):
+                        if target_samples is not None:
+                            if len(clean) < target_samples:
+                                raise ValueError(f"Only {len(clean)} finite rows; need {target_samples}")
+                            clean = clean[:target_samples]
+                        recording_start = len(records)
+                        for segment_index, start in enumerate(range(0, len(clean), segment_samples)):
                             values = clean[start:start + segment_samples]
                             name = f"condition{condition:02d}_setup{setup:02d}_{kind}_segment{segment_index:02d}.csv"
                             relative = Path("segments") / name
@@ -201,15 +221,28 @@ def clean_pdt(archive, output, measurement="avt", max_conditions=None,
                                 "measurement": kind,
                                 "segment": segment_index,
                                 "start_sample": start,
-                                "samples": segment_samples,
+                                "samples": len(values),
                                 "channels": len(channel_names),
                                 "channel_names": channel_names,
-                                "source": f"{package_name}::{item.filename}",
+                                "source": source,
                                 "removed_rows": int((~finite).sum()),
                                 "original_rows": int(data.shape[0]),
                             })
+                        status["recordings_processed"] += 1
+                        status["segments_written"] = len(records)
+                        status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
+                        if progress:
+                            written = len(records) - recording_start
+                            print(
+                                f"[{kind.upper()}] condition {condition:02d}, setup {setup:02d}: "
+                                f"{len(clean)} samples -> {written} CSV files "
+                                f"({status['recordings_processed']} recordings complete)",
+                                flush=True,
+                            )
                     except (ValueError, KeyError, zipfile.BadZipFile, OSError) as error:
                         issues.append({"source": f"{package_name}::{item.filename}", "reason": str(error)})
+                        if progress:
+                            print(f"[SKIP] {item.filename}: {error}", flush=True)
         except (FileNotFoundError, ValueError, zipfile.BadZipFile, OSError) as error:
             issues.append({"source": package_name, "reason": str(error)})
 
@@ -227,11 +260,19 @@ def clean_pdt(archive, output, measurement="avt", max_conditions=None,
         "segments": len(records),
         "csv_files": len(records),
         "issues": issues,
+        "status": "complete",
         "labeled": True,
         "label_definition": "PDT condition directory number minus one; verify scenario semantics in documentation",
         "sensor_mapping": "Preserved per setup; not forced into a global sensor order",
     }
     (output / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    status.update({
+        "status": "complete",
+        "recordings_processed": report["recordings"],
+        "segments_written": report["segments"],
+        "current_source": None,
+    })
+    status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
     with (output / "labels.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["condition_id", "label", "condition_name"])
