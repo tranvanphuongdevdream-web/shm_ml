@@ -110,6 +110,14 @@ def load_windows(run_dir, records, channel_names, window_samples=1000):
     return np.concatenate(windows), np.concatenate(labels)
 
 
+def to_tsai_format(x):
+    """Convert [samples, timesteps, channels] to tsai's [samples, variables, timesteps]."""
+    x = np.asarray(x, dtype=np.float32)
+    if x.ndim != 3:
+        raise ValueError(f"Expected a 3-D time-series array, got shape {x.shape}")
+    return np.ascontiguousarray(x.transpose(0, 2, 1))
+
+
 def normalize_from_train(x_train, *other_arrays):
     """Normalize all arrays using per-channel statistics from training only."""
     mean = x_train.mean(axis=(0, 1), keepdims=True, dtype=np.float64).astype(np.float32)

@@ -100,7 +100,8 @@ Split train, validation, and test data by recording or setup so segments from on
 
 Open `notebooks/DCNN_LSTM_ResNet_training.ipynb` after completing the cleaning notebook. The training notebook reads the newest complete AVT or FVT run directly from `processed/`; it does not require the pickle files used by the original implementation.
 
-The adaptation uses:
+The training notebook reproduces the teacher's 1DCNN-LSTM-ResNet layer
+configuration and training settings. Only the data interface differs:
 
 - 17 output classes, with labels 0--16 corresponding to conditions 1--17;
 - the five channels shared by every setup: `R1V`, `R2L`, `R2T`, `R2V`, and `R3V`;
@@ -113,11 +114,28 @@ All windows from a source `.mat` recording remain in one split. This prevents ne
 
 Set `MEASUREMENT = "avt"` or `MEASUREMENT = "fvt"` near the beginning of the notebook. Train the two measurement types in separate runs so their results can be compared fairly. Generated models, metrics, and normalization values are written to `artifacts/dcnn_lstm_resnet/` and are excluded from Git.
 
-The model module is stored as `src/models/dcnn_lstm_resnet.py`. Python module filenames cannot contain hyphens when imported normally, so the original filename `DCNN-LSTM-ResNet.py` was changed to an importable name. The architecture is adapted from:
+The model module is stored as `src/models/dcnn_lstm_resnet.py`. Python module filenames cannot contain hyphens when imported normally, so the original filename `DCNN-LSTM-ResNet.py` was changed to an importable name. The architecture follows the teacher's source and the associated publication:
 
 > Le-Xuan Thang, Bui-Tien Thanh, and Tran-Ngoc Hoa, "A novel approach model design for signal data using 1DCNN combing with LSTM and ResNet for damaged detection problem," *Structures*, 59, 105784, 2024. DOI: 10.1016/j.istruc.2023.105784.
 
 The original reported accuracy is not treated as a result of this project. Run the notebook on the cleaned data and report the resulting test metrics.
+
+## Standard time-series format and tsai baseline
+
+The official [tsai repository](https://github.com/timeseriesAI/tsai) defines time-series input as a three-dimensional array:
+
+```text
+samples x variables x sequence length
+```
+
+Open `notebooks/Z24_tsai_classification.ipynb` to convert the cleaned Z24 windows to this contract and train a PyTorch/fastai baseline. For the current experiment:
+
+```text
+X shape = (number of windows, 5 sensors, 1000 time samples)
+y shape = (number of windows,)
+```
+
+The notebook uses `ResNet` as the first tsai baseline. It preserves the recording-level split, applies training-only normalization, keeps the test set outside the learner during training, and saves the trained learner and test metrics under `artifacts/tsai/`.
 
 ## Project structure
 
@@ -131,7 +149,8 @@ shm/
 |       `-- dcnn_lstm_resnet.py      # Model architecture
 |-- notebooks/
 |   |-- PDT_cleaning.ipynb         # Raw PDT to clean CSV
-|   `-- DCNN_LSTM_ResNet_training.ipynb
+|   |-- DCNN_LSTM_ResNet_training.ipynb
+|   `-- Z24_tsai_classification.ipynb
 |-- processed/                     # Generated clean data; ignored by Git
 |-- artifacts/                     # Generated models and metrics; ignored by Git
 |-- raw_data/                      # Downloaded source ZIP; ignored by Git
