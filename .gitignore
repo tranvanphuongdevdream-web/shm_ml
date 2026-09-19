@@ -1,6 +1,7 @@
 # Raw and generated data are kept outside GitHub.
 raw_data/
 processed/
+artifacts/
 
 # Local Python environments and caches.
 .python_packages/

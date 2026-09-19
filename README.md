@@ -18,12 +18,14 @@ Expected layout:
 
 ```text
 shm/
-├── prepare_pdt.py
-├── notebooks/
-│   └── PDT_cleaning.ipynb
-├── raw_data/
-│   └── sources-Z24.zip
-└── requirements.txt
+|-- src/
+|   `-- data/
+|       `-- pdt_cleaning.py
+|-- notebooks/
+|   `-- PDT_cleaning.ipynb
+|-- raw_data/
+|   `-- sources-Z24.zip
+`-- requirements.txt
 ```
 
 The notebook also accepts the original filename `sources-Z24-004.zip`. Do not place the ZIP inside another subfolder and do not extract the nested PDT packages manually.
@@ -93,6 +95,49 @@ These charts are for data inspection. They do not train a model.
 Conditions 1, 2, and 8 are reference or transition scenarios. Keep all 17 labels for multiclass classification, or define an explicit rule before combining them into healthy/damaged classes. Confirm sensor units, sensor locations, and acquisition boundaries from `doc/Knowledge_based.pdf` before creating model windows.
 
 Split train, validation, and test data by recording or setup so segments from one recording cannot leak across splits. Compute normalization statistics from the training subset only. AVT and FVT should initially be evaluated as separate measurement domains.
+
+## Train the 1DCNN-LSTM-ResNet model
+
+Open `notebooks/DCNN_LSTM_ResNet_training.ipynb` after completing the cleaning notebook. The training notebook reads the newest complete AVT or FVT run directly from `processed/`; it does not require the pickle files used by the original implementation.
+
+The adaptation uses:
+
+- 17 output classes, with labels 0--16 corresponding to conditions 1--17;
+- the five channels shared by every setup: `R1V`, `R2L`, `R2T`, `R2V`, and `R3V`;
+- 1,000 samples per window, equal to 10 seconds at 100 Hz;
+- Keras input layout `(time_steps, channels)`, giving an input shape of `(1000, 5)`;
+- a condition-stratified split by source recording: six recordings for training, one for validation, and two for testing in every condition;
+- normalization statistics calculated from the training split only.
+
+All windows from a source `.mat` recording remain in one split. This prevents nearly identical neighboring segments from appearing in both training and evaluation data. The test set is evaluated only after model training.
+
+Set `MEASUREMENT = "avt"` or `MEASUREMENT = "fvt"` near the beginning of the notebook. Train the two measurement types in separate runs so their results can be compared fairly. Generated models, metrics, and normalization values are written to `artifacts/dcnn_lstm_resnet/` and are excluded from Git.
+
+The model module is stored as `src/models/dcnn_lstm_resnet.py`. Python module filenames cannot contain hyphens when imported normally, so the original filename `DCNN-LSTM-ResNet.py` was changed to an importable name. The architecture is adapted from:
+
+> Le-Xuan Thang, Bui-Tien Thanh, and Tran-Ngoc Hoa, "A novel approach model design for signal data using 1DCNN combing with LSTM and ResNet for damaged detection problem," *Structures*, 59, 105784, 2024. DOI: 10.1016/j.istruc.2023.105784.
+
+The original reported accuracy is not treated as a result of this project. Run the notebook on the cleaned data and report the resulting test metrics.
+
+## Project structure
+
+```text
+shm/
+|-- src/
+|   |-- data/
+|   |   |-- pdt_cleaning.py          # Raw ZIP and MAT to clean CSV
+|   |   `-- pdt_training_data.py     # Clean CSV to model-ready arrays
+|   `-- models/
+|       `-- dcnn_lstm_resnet.py      # Model architecture
+|-- notebooks/
+|   |-- PDT_cleaning.ipynb         # Raw PDT to clean CSV
+|   `-- DCNN_LSTM_ResNet_training.ipynb
+|-- processed/                     # Generated clean data; ignored by Git
+|-- artifacts/                     # Generated models and metrics; ignored by Git
+|-- raw_data/                      # Downloaded source ZIP; ignored by Git
+|-- requirements.txt
+`-- README.md
+```
 
 ## Common problems
 
