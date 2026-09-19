@@ -105,12 +105,12 @@ configuration and training settings. Only the data interface differs:
 
 - 17 output classes, with labels 0--16 corresponding to conditions 1--17;
 - the five channels shared by every setup: `R1V`, `R2L`, `R2T`, `R2V`, and `R3V`;
-- 1,000 samples per window, equal to 10 seconds at 100 Hz;
-- Keras input layout `(time_steps, channels)`, giving an input shape of `(1000, 5)`;
+- 8,000 samples per window, equal to 80 seconds at 100 Hz;
+- the teacher source input layout `(channels, time_samples)`, giving an input shape of `(5, 8000)`;
 - a condition-stratified split by source recording: six recordings for training, one for validation, and two for testing in every condition;
 - normalization statistics calculated from the training split only.
 
-All windows from a source `.mat` recording remain in one split. This prevents nearly identical neighboring segments from appearing in both training and evaluation data. The test set is evaluated only after model training.
+The loader first joins the 6,000-row CSV storage segments belonging to the same source recording, then creates non-overlapping 8,000-sample model windows. A remainder shorter than 8,000 samples is discarded without crossing into another recording. All windows from a source `.mat` recording remain in one split. This prevents neighboring windows from appearing in both training and evaluation data. The test set is evaluated only after model training.
 
 Set `MEASUREMENT = "avt"` or `MEASUREMENT = "fvt"` near the beginning of the notebook. Train the two measurement types in separate runs so their results can be compared fairly. Generated models, metrics, and normalization values are written to `artifacts/dcnn_lstm_resnet/` and are excluded from Git.
 
@@ -131,7 +131,7 @@ samples x variables x sequence length
 Open `notebooks/Z24_tsai_classification.ipynb` to convert the cleaned Z24 windows to this contract and train a PyTorch/fastai baseline. For the current experiment:
 
 ```text
-X shape = (number of windows, 5 sensors, 1000 time samples)
+X shape = (number of windows, 5 sensors, 8000 time samples)
 y shape = (number of windows,)
 ```
 

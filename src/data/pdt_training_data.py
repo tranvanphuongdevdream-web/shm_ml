@@ -82,28 +82,57 @@ def _portable_relative_path(value):
     return Path(*str(value).replace("\\", "/").split("/"))
 
 
-def load_windows(run_dir, records, channel_names, window_samples=1000):
-    """Load fixed windows from selected CSV rows as float32 arrays."""
+def count_complete_windows(records, window_samples=8000):
+    """Count complete windows after joining CSV segments by source recording."""
+    samples_by_source = defaultdict(int)
+    for row in records:
+        samples_by_source[row["source"]] += int(row["samples"])
+    return sum(samples // window_samples for samples in samples_by_source.values())
+
+
+def load_windows(run_dir, records, channel_names, window_samples=8000):
+    """Join each recording's CSV segments, then return fixed-length windows."""
     run_dir = Path(run_dir)
     windows, labels = [], []
+    rows_by_source = defaultdict(list)
     for row in records:
-        indexes = [row["channel_names"].index(name) + 1 for name in channel_names]
-        path = run_dir / _portable_relative_path(row["file"])
-        values = np.loadtxt(
-            path,
-            delimiter=",",
-            skiprows=1,
-            usecols=indexes,
-            dtype=np.float32,
-        )
-        if values.ndim == 1:
-            values = values[:, None]
+        rows_by_source[row["source"]].append(row)
+
+    for source, source_rows in sorted(rows_by_source.items()):
+        source_rows.sort(key=lambda row: (int(row["start_sample"]), int(row["segment"])))
+        source_labels = {int(row["label"]) for row in source_rows}
+        if len(source_labels) != 1:
+            raise ValueError(f"Recording has inconsistent labels: {source}")
+
+        recording_parts = []
+        for row in source_rows:
+            missing = [name for name in channel_names if name not in row["channel_names"]]
+            if missing:
+                raise ValueError(f"Recording {source} is missing channels: {missing}")
+            indexes = [row["channel_names"].index(name) + 1 for name in channel_names]
+            path = run_dir / _portable_relative_path(row["file"])
+            values = np.loadtxt(
+                path,
+                delimiter=",",
+                skiprows=1,
+                usecols=indexes,
+                dtype=np.float32,
+            )
+            if values.ndim == 1:
+                values = values[:, None]
+            if len(values) != int(row["samples"]):
+                raise ValueError(
+                    f"Manifest reports {row['samples']} samples but {path} has {len(values)}"
+                )
+            recording_parts.append(values)
+
+        values = np.concatenate(recording_parts, axis=0)
         window_count = len(values) // window_samples
         if window_count == 0:
             continue
         values = values[: window_count * window_samples]
         windows.append(values.reshape(window_count, window_samples, len(channel_names)))
-        labels.append(np.full(window_count, int(row["label"]), dtype=np.int64))
+        labels.append(np.full(window_count, source_labels.pop(), dtype=np.int64))
 
     if not windows:
         raise RuntimeError("No complete training windows were loaded")
