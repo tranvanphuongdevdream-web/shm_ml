@@ -1,8 +1,9 @@
-"""Faithful implementation of the teacher's 1DCNN-LSTM-ResNet model.
+"""Regularized 1DCNN-LSTM-ResNet model for Z24 time-series classification.
 
-Only the input shape and number of classes are supplied by the Z24 data
-pipeline. The layer structure and compile configuration follow the teacher's
-``DCNN-LSTM-ResNet.py`` source.
+The residual and recurrent blocks follow the teacher's architecture. The
+training version adds dropout, L2 regularization, and AdamW to reduce
+overfitting on the recording-level Z24 split. Keras input is time-major:
+``(time_samples, sensor_channels)``.
 """
 
 from __future__ import annotations
@@ -15,11 +16,13 @@ from tensorflow.keras.layers import (
     Concatenate,
     Conv1D,
     Dense,
+    Dropout,
     GlobalAveragePooling1D,
     GlobalMaxPooling1D,
     Input,
     LSTM,
 )
+from tensorflow.keras.regularizers import l2
 
 
 def resnet_block(
@@ -83,7 +86,7 @@ def resnet_block(
 
 
 def build_model(input_shape, num_classes):
-    """Build and compile the teacher's model for the selected Z24 data."""
+    """Build and compile the regularized model for the selected Z24 data."""
     input_tensor = Input(shape=input_shape)
 
     x = Conv1D(filters=64, kernel_size=7, padding="same", strides=2)(input_tensor)
@@ -108,6 +111,7 @@ def build_model(input_shape, num_classes):
         return_sequences=True,
         recurrent_activation="softmax",
     )(x)
+    lstm = Dropout(0.30)(lstm)
 
     shortcut1 = Conv1D(
         filters=lstm.shape[-1],
@@ -131,12 +135,20 @@ def build_model(input_shape, num_classes):
     x_max = GlobalMaxPooling1D()(x)
     x = Concatenate(axis=-1)([x_avg, x_max])
 
-    x = Dense(128, activation="relu")(x)
+    x = Dense(
+        128,
+        activation="relu",
+        kernel_regularizer=l2(1e-4),
+    )(x)
+    x = Dropout(0.50)(x)
     output_tensor = Dense(num_classes, activation="softmax")(x)
 
     model = tf.keras.Model(inputs=input_tensor, outputs=output_tensor)
     model.compile(
-        optimizer="adam",
+        optimizer=tf.keras.optimizers.AdamW(
+            learning_rate=1e-3,
+            weight_decay=1e-4,
+        ),
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
     )
