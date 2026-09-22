@@ -85,13 +85,20 @@ Normalization mean and standard deviation are calculated from train only.
 For an interactive run, open:
 
 ```text
-notebooks/modes02/DCNN_LSTM_ResNet_training.ipynb
+notebooks/modes02/kaggle/DCNN_LSTM_ResNet_training_kaggle.ipynb
+```
+
+That notebook contains one self-contained Kaggle code cell. For local,
+repository-based development, use:
+
+```text
+notebooks/modes02/local/DCNN_LSTM_ResNet_training_local.ipynb
 ```
 
 The matching tsai baseline is:
 
 ```text
-notebooks/modes02/Z24_tsai_classification.ipynb
+notebooks/modes02/kaggle/Z24_tsai_classification_kaggle.ipynb
 ```
 
 Or use the command-line entry point:
@@ -147,7 +154,8 @@ notebooks/
 |   |-- DCNN_LSTM_ResNet_training.ipynb
 |   `-- Z24_tsai_classification.ipynb
 `-- modes02/                     # Processed dataset.zip experiments
-    |-- DCNN_LSTM_ResNet_training.ipynb
+    |-- DCNN_LSTM_ResNet_training.ipynb         # One-cell Kaggle version
+    |-- DCNN_LSTM_ResNet_training_local.ipynb   # Modular local version
     `-- Z24_tsai_classification.ipynb
 
 src/

@@ -22,8 +22,11 @@ segments and uses setup-grouped train/validation/test splits.
 
 Run either:
 
-- `modes02/DCNN_LSTM_ResNet_training.ipynb`
-- `modes02/Z24_tsai_classification.ipynb`
+- `modes02/kaggle/DCNN_LSTM_ResNet_training_kaggle.ipynb`
+- `modes02/kaggle/Z24_tsai_classification_kaggle.ipynb`
 
-Both Mode 02 notebooks reuse the same cache, split seed, setup allocation, and
+Both Mode 02 notebooks use the same split seed, setup allocation, and
 training-only normalization rules.
+
+The Kaggle notebooks live in `modes02/kaggle/`. Their modular local
+counterparts live in `modes02/local/` and end in `_local.ipynb`.
