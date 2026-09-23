@@ -1,288 +1,730 @@
 \documentclass[11pt,a4paper]{article}
+
 \usepackage[T1]{fontenc}
 \usepackage[margin=2.1cm]{geometry}
+\usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{amsmath}
 \usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{listings}
 \usepackage{parskip}
-\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
-\definecolor{codebg}{RGB}{246,248,250}
-\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=fullflexible,frame=single,backgroundcolor=\color{codebg}}
 
-\title{\textbf{Week 2 Report}\\[0.4em]Z24 PDT Model-Ready Dataset and Classification Pipelines}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
+\definecolor{codebg}{RGB}{246,248,250}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=fullflexible,
+    frame=single,
+    backgroundcolor=\color{codebg}
+}
+
+\renewcommand{\arraystretch}{1.15}
+
+\title{
+    \textbf{Week 2 Report}\\[0.4em]
+    Benchmarking Teacher-Reference LSTM, Proposed LSTM, and tsai ResNet
+    on the Processed Z24 Dataset
+}
+
 \author{TRAN VAN PHUONG}
 \date{20 September 2026}
 
 \begin{document}
+
 \maketitle
 
 \begin{abstract}
-This report documents the second-week work on the Z24 Progressive Damage Test (PDT) training data. The cleaned CSV files are converted into fixed-length time-series windows, normalized using training statistics, and passed to two classification pipelines: the teacher's 1DCNN-LSTM-ResNet implementation and a tsai ResNet baseline. The report describes the input contract, function flow, mock examples, split strategy, model interfaces, experiment results, and the current overfitting diagnosis.
+This report evaluates a teacher-reference 1DCNN--LSTM--ResNet, a proposed
+1DCNN--LSTM--ResNet, and a tsai ResNet on the same processed Z24 dataset.
+All experiments use 1,530 samples, 17 balanced classes, the same
+setup-grouped train/validation/test split, and per-sensor Z-score normalization
+calculated from the training set only. The teacher-reference pipeline preserves
+the lecturer's sensor-first input convention and softmax recurrent activation,
+whereas the proposed pipeline treats the 6,000 measurements as time steps,
+uses a sigmoid recurrent activation, and adds Dropout, L2 regularization,
+AdamW, \texttt{tf.data}, and two-GPU training. The tsai pipeline uses a
+one-dimensional ResNet implemented with PyTorch/fastai and trains on one GPU.
+
+The proposed pipeline increased test accuracy from 56.18\% to 60.00\% and
+test macro F1 from 53.63\% to 55.02\%. Its train--test accuracy gap decreased
+from 43.82 to 33.14 percentage points, indicating less severe overfitting.
+However, the improvement was not uniform across classes and amounted to only
+13 additional correct predictions among 340 test samples. The tsai ResNet
+obtained 60.29\% test accuracy and 57.67\% macro F1. It therefore classified
+only one more test sample correctly than the proposed LSTM, but improved macro
+F1 by 2.65 percentage points, indicating a different class-level trade-off.
+The proposed LSTM
+also required 8.35 seconds per steady-state epoch, compared with 0.78 seconds
+for the teacher-reference pipeline and 8.05 seconds for tsai. The main reason
+for the LSTM cost is that it processes
+approximately 3,000 recurrent steps instead of approximately 14. Finally, the
+recorded benchmark policy was \texttt{float32}; therefore, this run does not
+support a claim that mixed precision accelerated the proposed model.
 \end{abstract}
 
-\section{Research objective}
-The task is supervised time-series classification:
+\section{Objective and scope}
 
-\begin{lstlisting}
-Input X  = synchronized sensor values over time
-Output y = one of the 17 Z24 bridge conditions
-\end{lstlisting}
-
-Condition directories 01--17 are mapped to zero-based labels 0--16. The zero-based representation is used by the classification loss, while the original condition numbers remain available in the manifest and report files.
-
-\section{Clean-data source and model contract}
-The training notebooks read the newest complete run under \texttt{processed/avt/} or \texttt{processed/fvt/}. The current AVT run contains 153 source recordings and 1,683 CSV segments. Each source recording is represented by a unique \texttt{source} value in \texttt{manifest.json}.
-
-The documented sampling frequency is 100 Hz. The model window is 8,000 samples, corresponding to 80 seconds. The five channels present in every recording are:
-
-\begin{lstlisting}
-R1V, R2L, R2T, R2V, R3V
-\end{lstlisting}
-
-The cleaner preserves 33 channels in the CSV files, but the training loader uses the intersection of channel names across all recordings. This common-channel rule currently produces five channels and gives a consistent input layout for every window.
-
-\section{Function flow in \texttt{pdt\_training\_data.py}}
-
-\subsection{\texttt{latest\_complete\_run(project\_root, measurement)}}
-\textbf{Target.} Select the newest timestamped clean-data directory whose \texttt{report.json} and \texttt{manifest.json} exist and whose report status is \texttt{complete}.
-
-\textbf{Mock input.}
-\begin{lstlisting}
-run_dir = latest_complete_run(
-    r"C:\\Users\\phuotran\\Data\\research\\shm",
-    measurement="avt",
-)
-\end{lstlisting}
-
-\textbf{Mock output.}
-\begin{lstlisting}
-C:\Users\phuotran\Data\research\shm\processed\avt\
-avt_13-09-2026_21-52-09
-\end{lstlisting}
-
-The function only selects a directory. It does not read sensor values or modify any data.
-
-\subsection{\texttt{read\_manifest(run\_dir)}}
-\textbf{Target.} Read \texttt{manifest.json} and convert its JSON content into a Python list of dictionaries.
-
-\textbf{Mock input.}
-\begin{lstlisting}
-records = read_manifest(run_dir)
-\end{lstlisting}
-
-\textbf{Mock output.}
-\begin{lstlisting}
-[
-  {
-    "file": "segments/condition01_setup01_avt_segment00.csv",
-    "condition_id": 1,
-    "condition_name": "undamaged_reference_1",
-    "label": 0,
-    "setup_id": 1,
-    "measurement": "avt",
-    "segment": 0,
-    "start_sample": 0,
-    "samples": 6000,
-    "channels": 33,
-    "channel_names": ["99V", "100V", "R1V", "R2L", "R2T", "R2V", "R3V"]
-  }
-]
-\end{lstlisting}
-
-The manifest is metadata. It tells the loader which CSV belongs to which condition, setup, recording, and segment.
-
-\subsection{\texttt{common\_channels(records)}}
-\textbf{Target.} Find the sensor names present in every recording and preserve their order from the first recording.
-
-\textbf{Mock input.}
-\begin{lstlisting}
-Recording 1: [A, B, C, D]
-Recording 2: [B, C, D, E]
-Recording 3: [C, D, F]
-\end{lstlisting}
-
-\textbf{Flow.}
-\begin{lstlisting}
-common = names from Recording 1
-common &= names from Recording 2
-common &= names from Recording 3
-\end{lstlisting}
-
-\textbf{Mock output.}
-\begin{lstlisting}
-("C", "D")
-\end{lstlisting}
-
-For the Z24 AVT run, the result is \texttt{R1V, R2L, R2T, R2V, R3V}.
-
-\subsection{\texttt{split\_by\_recording(records, seed)}}
-\textbf{Target.} Create train, validation, and test lists while keeping every source recording in exactly one split.
-
-The function groups source recordings by label, shuffles them with a reproducible seed, and assigns the requested fractions. Because every condition currently has nine recordings, the resulting allocation is:
-
-\begin{lstlisting}
-6 recordings per condition -> train
-1 recording per condition  -> validation
-2 recordings per condition -> test
-\end{lstlisting}
-
-This is approximately 66.7\%, 11.1\%, and 22.2\% within each condition. The nominal function arguments are 15\% validation and 20\% test, but the minimum-one-recording rule determines the exact allocation for nine recordings.
-
-\textbf{Mock output.}
-\begin{lstlisting}
-{
-  "train":      [manifest rows from 102 recordings],
-  "validation": [manifest rows from 17 recordings],
-  "test":       [manifest rows from 34 recordings]
-}
-\end{lstlisting}
-
-The disjointness assertions verify that no source recording appears in two splits.
-
-\subsection{\texttt{\_portable\_relative\_path(value)}}
-\textbf{Target.} Convert either Windows or POSIX separators into a portable relative \texttt{Path}.
-
-\textbf{Mock input and output.}
-\begin{lstlisting}
-_portable_relative_path("segments\\condition01_setup01_avt_segment00.csv")
-# segments/condition01_setup01_avt_segment00.csv
-\end{lstlisting}
-
-This allows the same manifest to be read on Windows, Linux, Kaggle, or Colab.
-
-\subsection{\texttt{load\_windows(run\_dir, records, channel\_names, window\_samples)}}
-\textbf{Target.} Join all CSV storage segments belonging to each source recording and create fixed-length model windows.
-
-\textbf{Mock input.}
-\begin{lstlisting}
-sample_index,R1V,R2V,sensor_X
-0,10,20,100
-1,11,21,101
-2,12,22,102
-3,13,23,103
-4,14,24,104
-5,15,25,105
-\end{lstlisting}
-
-If \texttt{channel\_names = [R1V, R2V]} and \texttt{window\_samples = 3}, the output is:
-
-\begin{lstlisting}
-X = [
-  [[10, 20], [11, 21], [12, 22]],
-  [[13, 23], [14, 24], [15, 25]]
-]
-y = [condition_label, condition_label]
-\end{lstlisting}
-
-The output shape is \texttt{(number\_of\_windows, window\_samples, number\_of\_channels)} before backend-specific conversion. A remainder shorter than the requested window length is discarded; data from two different recordings is never joined.
-
-For the current AVT dataset:
-
-\begin{lstlisting}
-X_train      = (816, 8000, 5)
-X_validation = (136, 8000, 5)
-X_test       = (272, 8000, 5)
-\end{lstlisting}
-
-The 816 value is the number of train windows, not the number of raw sensor samples. The complete dataset contains 1,224 usable 8,000-sample windows across all three splits.
-
-\subsection{\texttt{normalize\_from\_train(x\_train, *other\_arrays)}}
-\textbf{Target.} Put all channels on comparable numerical scales without using validation or test statistics.
-
-For every channel, the function calculates:
-
-\begin{lstlisting}
-normalized_value = (value - training_mean) / training_std
-\end{lstlisting}
-
-The same training mean and standard deviation are applied to validation and test arrays. This prevents preprocessing information from the test set entering the model-training process.
-
-\section{End-to-end data flow}
-
-\begin{lstlisting}
-processed/avt/
-       |
-       v
-latest_complete_run()
-       |
-       v
-read_manifest()
-       |
-       v
-common_channels() -> five shared sensors
-       |
-       v
-split_by_recording()
-       |
-       +--> train: 102 recordings, 816 windows
-       +--> validation: 17 recordings, 136 windows
-       +--> test: 34 recordings, 272 windows
-       |
-       v
-load_windows()
-       |
-       v
-normalize_from_train()
-       |
-       +--> TensorFlow input for 1DCNN-LSTM-ResNet
-       |
-       +--> tsai input: (samples, channels, timesteps)
-\end{lstlisting}
-
-\section{The two model pipelines}
-
-\subsection{Teacher-compatible 1DCNN-LSTM-ResNet}
-The notebook imports \texttt{build\_model()} from \texttt{src/models/dcnn\_lstm\_resnet.py}. The model contains an initial Conv1D layer, two residual blocks, a 128-unit LSTM, two shortcut paths, global average and maximum pooling, a dense layer, and a 17-class softmax output.
-
-The training notebook creates TensorFlow datasets with batch size 64, trains for at most 100 epochs, monitors validation accuracy, and saves the best checkpoint. The current project implementation additionally contains Dropout, L2 regularization, and AdamW. Therefore its backbone follows the teacher source, but the complete training model is not identical to the teacher's original code.
-
-\textbf{Input-layout note.} The current notebook transposes the arrays to \texttt{(samples, 5, 8000)} to match the teacher source. Standard Keras Conv1D convention is \texttt{(samples, timesteps, channels)}, or \texttt{(samples, 8000, 5)} for this data. This layout must be resolved before reporting final DCNN results.
-
-\subsection{tsai ResNet baseline}
-tsai uses the contract:
-
-\begin{lstlisting}
-samples x variables x sequence_length
-\end{lstlisting}
-
-Therefore the arrays are converted to:
-
-\begin{lstlisting}
-X_train      = (816, 5, 8000)
-X_validation = (136, 5, 8000)
-X_test       = (272, 5, 8000)
-\end{lstlisting}
-
-Train and validation arrays are combined with explicit split indices for \texttt{TSClassifier}. The test set remains outside the learner until final evaluation. The baseline uses tsai's ResNet architecture, a batch size of 32, and the fastai one-cycle training schedule.
-
-\section{Observed results and overfitting diagnosis}
-The recorded runs show a large gap between training and evaluation performance:
-
-\begin{center}
-\begin{tabular}{lrrr}
-\toprule
-Pipeline & Training & Validation & Test \\
-\midrule
-DCNN-LSTM-ResNet & 96.45\% & 16.18\% & 15.81\% \\
-tsai ResNet & 95.59\% & 9.56\% & 23.16\% \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-The main hypotheses are:
+The objective is to determine how the complete pipeline and model changes
+affected:
 
 \begin{enumerate}
-\item There are only six independent training recordings per condition. The eight windows generated from one recording are correlated and should not be counted as eight independent experiments.
-\item The DCNN implementation currently has a channel/time input-layout problem. Passing \texttt{(5, 8000)} to Keras Conv1D makes the network interpret five as the time length and 8,000 as the channel count, which greatly increases the first-layer parameter count.
-\item Only five of the 33 available sensor columns are shared by every recording. The excluded channels may contain useful damage information, while the remaining channels may not fully separate all 17 conditions.
-\item An 80-second window can contain long periods of low-information vibration. Assigning the recording label to every window may create weakly informative or noisy training targets.
-\item Validation contains only one recording per condition, so its accuracy has high variance. The higher tsai test accuracy is not evidence that validation is better; it reflects the small grouped evaluation sample and a different pair of recordings.
+    \item classification performance on train, validation, and test data;
+    \item overfitting and generalization to unseen setups;
+    \item model size and training speed, including the tsai ResNet baseline;
+    \item class-specific errors; and
+    \item the validity of claims concerning GPU acceleration.
 \end{enumerate}
 
-The split-by-recording design prevents direct segment leakage, but it does not create more independent recordings. The next experiments should correct the Keras input layout, use early stopping on validation loss, report recording-level majority-vote accuracy, and compare grouped cross-validation results. Additional experiments can evaluate per-recording detrending, controlled time-series augmentation, and a principled method for using the non-common sensors.
+The evaluated notebooks are:
+
+\begin{lstlisting}
+Proposed LSTM and tsai ResNet:
+shm-ml-new.ipynb
+
+Teacher-reference pipeline:
+shm-old-lstm.ipynb
+\end{lstlisting}
+
+The first notebook contains two independent experiments: the proposed LSTM in
+TensorFlow/Keras and the tsai ResNet in PyTorch/fastai. The teacher-reference
+notebook is an adaptation of the lecturer's source code
+to the processed dataset. It is not the unmodified original experiment. The
+original code used pickle files, an input shape of \texttt{(5, 8000)}, and a
+validation set containing training samples. For the benchmark reported here,
+the teacher architecture and training style were retained, but all three pipelines
+used the same processed data, grouped split, and training-only normalization.
+This distinction is essential: the results below compare three trained models
+on controlled data, not the new models against the accuracy originally reported
+by the lecturer.
+
+\section{Controlled dataset and evaluation protocol}
+
+The processed dataset has the following contract:
+
+\begin{lstlisting}
+inputs:  (1530, 27, 6000), float32
+labels:  (1530,), int64
+classes: 17
+layout:  samples x sensors x time samples
+\end{lstlisting}
+
+All three experiments used the same seed-42 setup allocation:
+
+\begin{table}[htbp]
+\centering
+\caption{Identical grouped split used by all three pipelines.}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Split} & \textbf{Segments} & \textbf{Recordings} & \textbf{Setup IDs} \\
+\midrule
+Train      & 1,020 & 102 & 3, 0, 7, 2, 4, 6 \\
+Validation &   170 &  17 & 1 \\
+Test       &   340 &  34 & 5, 8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All ten segments from one condition/setup recording remain in one split. Thus,
+the sets of recording identifiers satisfy:
+
+\[
+R_{\mathrm{train}} \cap R_{\mathrm{validation}} = \varnothing,
+\qquad
+R_{\mathrm{train}} \cap R_{\mathrm{test}} = \varnothing,
+\qquad
+R_{\mathrm{validation}} \cap R_{\mathrm{test}} = \varnothing.
+\]
+
+Every class contributes 60 train, 10 validation, and 20 test segments. Because
+the test set is class-balanced, macro recall is numerically equal to accuracy
+in this experiment. It should not be interpreted as independent confirmation
+of the accuracy result.
+
+All three pipelines apply per-sensor Z-score normalization:
+
+\[
+x'_{i,s,t}
+=
+\frac{x_{i,s,t}-\mu_{s,\mathrm{train}}}
+     {\sigma_{s,\mathrm{train}}}.
+\]
+
+Only training samples are used to calculate \(\mu_{s,\mathrm{train}}\) and
+\(\sigma_{s,\mathrm{train}}\). The resulting statistics are then applied to
+train, validation, and test data, avoiding preprocessing leakage.
+
+\section{Pipeline changes}
+
+\begin{table}[htbp]
+\centering
+\caption{Configuration of the two benchmarked pipelines.}
+\begin{tabularx}{\textwidth}{@{}p{3.4cm}XX@{}}
+\toprule
+\textbf{Component} &
+\textbf{Teacher-reference} &
+\textbf{Proposed} \\
+\midrule
+Stored data
+& \texttt{(1530, 27, 6000)}
+& \texttt{(1530, 27, 6000)} \\
+
+Model input
+& \texttt{(27, 6000)}
+& \texttt{(6000, 27)} \\
+
+Input interpretation
+& 27 sensor positions as sequence steps; 6,000 features per step
+& 6,000 time samples as sequence steps; 27 sensor features per step \\
+
+Sequence after stride-2 Conv1D
+& Approximately 14 steps
+& 3,000 steps \\
+
+LSTM
+& 128 units, recurrent softmax
+& 128 units, recurrent sigmoid \\
+
+Parameters
+& 3,949,137
+& 508,689 \\
+
+Normalization
+& Per-sensor train-only Z-score
+& Per-sensor train-only Z-score \\
+
+Regularization
+& No explicit Dropout/L2
+& Dropout, L2, and decoupled weight decay \\
+
+Optimizer
+& Adam
+& AdamW \\
+
+Batch size
+& 64
+& 32 \\
+
+Model selection
+& Maximum validation accuracy, patience 30
+& Minimum validation loss, patience 15 \\
+
+Data input
+& Direct NumPy arrays
+& \texttt{tf.data} with shuffle and prefetch \\
+
+GPU execution
+& One replica on GPU 0
+& Two replicas using MirroredStrategy \\
+
+Recorded precision policy
+& \texttt{float32}
+& \texttt{float32} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The core Conv1D--ResNet--LSTM structure is preserved. However, the proposed
+pipeline is not a one-variable modification. It changes the input semantics,
+LSTM gate activation, optimizer, regularization, batch size, model-selection
+criterion, data loader, and distribution strategy simultaneously. The measured
+difference is therefore the effect of the complete pipeline package; it cannot
+be attributed to any one component without an ablation study.
+
+\subsection{Proposed LSTM versus tsai ResNet}
+
+The proposed LSTM and tsai experiments share the same dataset, setup IDs,
+per-sensor normalization, batch size, and reported metrics. Their input tensors
+use different framework conventions but represent the same physical axes:
+
+\begin{lstlisting}
+Keras LSTM: (batch, time, sensors) = (N, 6000, 27)
+tsai ResNet: (batch, channels, time) = (N, 27, 6000)
+\end{lstlisting}
+
+Thus, unlike the teacher-reference layout, both models treat 6,000 as the time
+dimension. Their training configurations are summarized below.
+
+\begin{table}[htbp]
+\centering
+\caption{Configuration of the proposed LSTM and tsai ResNet.}
+\begin{tabularx}{\textwidth}{@{}p{3.5cm}XX@{}}
+\toprule
+\textbf{Component} & \textbf{Proposed LSTM} & \textbf{tsai ResNet} \\
+\midrule
+Framework & TensorFlow/Keras & PyTorch, fastai, and tsai \\
+Model & 1DCNN--LSTM--ResNet & One-dimensional ResNet \\
+Input convention & \texttt{(N, 6000, 27)} & \texttt{(N, 27, 6000)} \\
+Parameters & 508,689 & 493,713 \\
+Batch size & 32 & 32 \\
+Optimizer & AdamW & Adam with one-cycle schedule \\
+Regularization & Dropout, L2, weight decay & Weight decay \(10^{-4}\) \\
+Epoch control & Maximum 100; early stopping & Fixed 20 epochs \\
+Model restoration & Minimum validation loss & No best-epoch restoration \\
+Recorded precision & Float32 & Float32 \\
+Training devices & Two T4 replicas & One T4, \texttt{cuda:0} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The tsai ResNet contains no recurrent layer. Its temporal convolutions can be
+computed in parallel across the signal, whereas the LSTM state at step \(t\)
+depends on the state at step \(t-1\). This architectural distinction is central
+to the speed comparison.
+
+\subsection{Change in temporal representation}
+
+The teacher-reference flow is:
+
+\begin{lstlisting}
+(batch, 27, 6000)
+        |
+        v
+stride-2 Conv1D
+        |
+        v
+(batch, 14, 64)
+        |
+        v
+ResNet and LSTM over approximately 14 steps
+\end{lstlisting}
+
+The proposed flow is:
+
+\begin{lstlisting}
+(batch, 6000, 27)
+        |
+        v
+stride-2 Conv1D
+        |
+        v
+(batch, 3000, 64)
+        |
+        v
+ResNet and LSTM over 3000 steps
+\end{lstlisting}
+
+The proposed layout is more consistent with the physical meaning of the data:
+the recurrent dimension follows time, while the 27 simultaneous sensor values
+form the feature vector at each time step. The cost is a much longer recurrent
+sequence.
+
+\subsection{Change in capacity and regularization}
+
+The proposed model reduced the parameter count by:
+
+\[
+1 - \frac{508{,}689}{3{,}949{,}137}
+= 87.12\%.
+\]
+
+Despite containing fewer parameters, it performs more sequential work because
+the LSTM sequence grows from approximately 14 to 3,000 steps. Dropout, L2, and
+AdamW further distinguish it from the unregularized teacher-reference model.
+These mechanisms are expected to lower training accuracy while potentially
+improving validation and test performance.
+
+\section{Experimental results}
+
+\subsection{Classification metrics}
+
+\begin{table}[htbp]
+\centering
+\caption{Measured final metrics for the three completed runs.}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+\textbf{Split} & \textbf{Metric} &
+\textbf{Teacher-ref.} & \textbf{Proposed LSTM} & \textbf{tsai ResNet} \\
+\midrule
+Train & Accuracy        & 100.00\% & 93.14\% & 100.00\% \\
+Train & Precision macro & 100.00\% & 94.23\% & 100.00\% \\
+Train & Recall macro    & 100.00\% & 93.14\% & 100.00\% \\
+Train & F1 macro        & 100.00\% & 92.76\% & 100.00\% \\
+\midrule
+Validation & Accuracy        & 54.71\% & 58.82\% & 63.53\% \\
+Validation & Precision macro & 50.72\% & 50.29\% & 60.14\% \\
+Validation & Recall macro    & 54.71\% & 58.82\% & 63.53\% \\
+Validation & F1 macro        & 48.93\% & 51.49\% & 56.77\% \\
+\midrule
+Test & Accuracy        & 56.18\% & 60.00\% & 60.29\% \\
+Test & Precision macro & 56.67\% & 60.93\% & 58.81\% \\
+Test & Recall macro    & 56.18\% & 60.00\% & 60.29\% \\
+Test & F1 macro        & 53.63\% & 55.02\% & 57.67\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The proposed pipeline correctly classified 204 of 340 test samples, compared
+with 191 for the teacher-reference pipeline. This is a gain of 13 correct
+predictions. The accuracy and precision improvements are meaningful enough to
+motivate further experiments, but the smaller macro-F1 gain shows that the
+benefit is not evenly distributed among classes.
+
+Compared directly with the proposed LSTM, tsai increased validation accuracy
+by 4.71 percentage points and validation macro F1 by 5.28 percentage points.
+On test data, it increased accuracy by only 0.29 percentage points, equivalent
+to one additional correct sample, while test macro F1 increased by 2.65
+percentage points. Its test macro precision was 2.12 percentage points lower.
+Consequently, the two new models have effectively tied test accuracy, while
+tsai provides the better macro F1 in this run.
+
+\subsection{Overfitting}
+
+For accuracy, the train--test gaps are:
+
+\[
+G_{\mathrm{teacher}}
+= 100.00 - 56.18
+= 43.82 \text{ percentage points},
+\]
+
+\[
+G_{\mathrm{proposed}}
+= 93.14 - 60.00
+= 33.14 \text{ percentage points}.
+\]
+
+For tsai:
+
+\[
+G_{\mathrm{tsai}}
+= 100.00 - 60.29
+= 39.71 \text{ percentage points}.
+\]
+
+The proposed pipeline reduces the gap by 10.68 percentage points. The
+teacher-reference model reached approximately 100\% training accuracy by
+epoch 10 while validation accuracy remained near 50--55\%, which is strong
+evidence of memorization. The proposed model still overfits: training loss
+continues to decrease after validation loss reaches its minimum, and validation
+accuracy fluctuates considerably. Nevertheless, its lower training score and
+higher test score indicate that the regularized pipeline generalizes better in
+this run.
+
+The tsai model also reached 100\% train accuracy. Its 39.71-point train--test
+gap is smaller than the teacher-reference gap but 6.57 points larger than the
+proposed LSTM gap. Thus, tsai obtains the highest validation metrics and macro
+F1, but the proposed LSTM shows the smallest accuracy-based overfitting gap.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.49\textwidth]{img/teacher_lstm_training_curves.png}
+\hfill
+\includegraphics[width=0.49\textwidth]{img/proposed_lstm_training_curves.png}
+\caption{Training histories exported from the Kaggle notebooks. The
+teacher-reference model (left) reaches 100\% training accuracy rapidly while
+validation accuracy plateaus near 55\%. The proposed LSTM (right) learns more
+gradually, but validation loss begins increasing after its early minimum.}
+\label{fig:lstm-training-curves}
+\end{figure}
+
+\subsection{Model-selection difference}
+
+The proposed run stopped after 21 epochs and restored the epoch selected by
+minimum validation loss. Its minimum validation loss occurred near epoch 6.
+The training log later reached a maximum validation accuracy of 67.06\% at
+epoch 17, but those weights were not selected because validation loss had
+worsened.
+
+The teacher-reference run monitored validation accuracy, reached its best
+value of 54.71\% near epoch 22, and stopped after 52 epochs. Thus, final model
+selection is not controlled between the two LSTM experiments. The proposed model's
+final validation accuracy of 58.82\% must not be confused with the transient
+67.06\% observed during training. A fair architecture comparison should use
+the same monitored metric and patience in both LSTM pipelines. For a class-balanced
+classification problem, validation macro F1 is also a reasonable selection
+criterion.
+
+The tsai run used a fixed 20-epoch one-cycle schedule without early stopping or
+best-weight restoration. Its validation accuracy reached 72.35\% at epoch 12
+but ended at 63.53\% after epoch 20. Therefore, all three pipelines use
+different model-selection rules. The reported tsai result corresponds to the
+last epoch, not the epoch with maximum validation accuracy.
+
+\section{Class-specific effects}
+
+Each class contains 20 test samples. Table~\ref{tab:class-changes} summarizes
+the changes visible in the two test confusion matrices.
+
+\begin{table}[htbp]
+\centering
+\caption{Largest class-level changes in correct test predictions.}
+\label{tab:class-changes}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Class} & \textbf{Teacher-ref. correct} &
+\textbf{Proposed correct} & \textbf{Change} \\
+\midrule
+16 &  0/20 & 20/20 & $+20$ \\
+4  &  9/20 & 20/20 & $+11$ \\
+14 &  3/20 &  6/20 & $+3$ \\
+8  &  0/20 &  2/20 & $+2$ \\
+2  & 11/20 & 12/20 & $+1$ \\
+\midrule
+5  & 20/20 & 17/20 & $-3$ \\
+3  &  7/20 &  2/20 & $-5$ \\
+0  & 18/20 & 12/20 & $-6$ \\
+12 & 10/20 &  0/20 & $-10$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The net gain is strongly influenced by classes 16 and 4. At the same time,
+class 12 falls from 50\% recall to 0\%, and class 15 remains at 0/20 for both
+models. Consequently, the proposed pipeline should not be described as a
+uniform improvement across all damage conditions. The persistent failure on
+class 15 and the trade-off between classes 12 and 16 require investigation of
+signal similarity, label definitions, and per-class feature distributions.
+
+The tsai and proposed-LSTM confusion matrices are strongly complementary.
+Table~\ref{tab:tsai-lstm-classes} reports the largest differences.
+
+\begin{table}[htbp]
+\centering
+\caption{Class-level comparison of tsai and the proposed LSTM.}
+\label{tab:tsai-lstm-classes}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Class} & \textbf{Proposed LSTM correct} &
+\textbf{tsai correct} & \textbf{tsai $-$ LSTM} \\
+\midrule
+12 &  0/20 & 12/20 & $+12$ \\
+2  & 12/20 & 20/20 & $+8$ \\
+14 &  6/20 & 10/20 & $+4$ \\
+5  & 17/20 & 20/20 & $+3$ \\
+\midrule
+3  &  2/20 &  0/20 & $-2$ \\
+16 & 20/20 &  0/20 & $-20$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The proposed LSTM recognizes all class-16 samples but none from class 12;
+tsai recognizes 12 class-12 samples but none from class 16. Both models fail
+on all class-15 samples. This pattern explains why their overall accuracies are
+nearly identical despite very different predictions. It also motivates a
+future confidence-level ensemble experiment, although an ensemble improvement
+cannot be assumed without paired prediction analysis.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.78\textwidth]{img/teacher_lstm_confusion_matrix.png}
+\caption{Test confusion matrix of the teacher-reference LSTM. The model is
+perfect on several classes but completely misses classes 8, 15, and 16.}
+\label{fig:teacher-confusion}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.78\textwidth]{img/proposed_lstm_confusion_matrix.png}
+\caption{Test confusion matrix of the proposed LSTM. Classes 4 and 16 improve
+substantially, while class 12 falls to zero correct predictions.}
+\label{fig:proposed-confusion}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.78\textwidth]{img/tsai_resnet_confusion_matrix.png}
+\caption{Test confusion matrix of the tsai ResNet. It recovers class 12 and
+performs strongly on classes 2, 4--7, 10, and 11, but misses classes 3, 15,
+and 16.}
+\label{fig:tsai-confusion}
+\end{figure}
+
+\section{Training-speed results}
+
+\begin{table}[htbp]
+\centering
+\caption{Measured end-to-end training performance on Kaggle T4 GPUs.}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Measurement} & \textbf{Teacher-reference} &
+\textbf{Proposed LSTM} & \textbf{tsai ResNet} \\
+\midrule
+Visible GPUs & 2 Tesla T4 & 2 Tesla T4 & 2 Tesla T4 \\
+Training replicas & 1 & 2 & 1 \\
+Completed epochs & 52 & 21 & 20 \\
+Total training time & 66.29 s & 190.81 s & 160.95 s \\
+Mean epoch time & 1.24 s & 8.98 s & 8.04 s \\
+Mean epoch time excluding first & 0.78 s & 8.35 s & 8.05 s \\
+Effective throughput (samples/s) & 1,308.42 & 122.19 & 126.69 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The proposed pipeline is approximately:
+
+\[
+\frac{8.3476}{0.7796} \approx 10.7
+\]
+
+times slower per steady-state epoch. Its complete run is approximately 2.88
+times longer, despite stopping after fewer than half as many epochs.
+
+This result does not contradict cuDNN optimization. The teacher-reference LSTM
+processes only about 14 recurrent steps, whereas the proposed LSTM processes
+3,000. The sequence-length ratio is approximately:
+
+\[
+\frac{3000}{14} \approx 214.
+\]
+
+The proposed model uses the more natural temporal orientation, but this choice
+substantially increases computation. Moreover, its global batch of 32 is split
+across two GPUs, leaving approximately 16 samples per replica. Gradient
+all-reduce and model-replication overhead can reduce the benefit of the second
+GPU at this dataset size. Therefore, the experimental result is that the new
+pipeline is slower, not faster, than the teacher-reference adaptation.
+
+The tsai ResNet is approximately 3.55\% faster per steady-state epoch than the
+proposed LSTM and processes approximately 3.68\% more samples per second. Its
+total run is 29.86 seconds shorter, although this comparison includes 20 fixed
+tsai epochs versus 21 early-stopped LSTM epochs. More importantly, tsai obtains
+this throughput on one T4 while the LSTM uses two replicas. Convolutional
+operations can exploit parallelism across the complete time axis, whereas the
+LSTM retains recurrent dependencies across 3,000 steps. Nevertheless, a pure
+architecture-speed comparison should rerun both models on one GPU with the
+same precision and batch size.
+
+\section{Mixed-precision audit}
+
+The beginning of the proposed notebook printed:
+
+\begin{lstlisting}
+Mixed precision policy: mixed_float16
+\end{lstlisting}
+
+However, its saved benchmark summary reported:
+
+\begin{lstlisting}
+precision_policy: float32
+\end{lstlisting}
+
+The notebook calls \texttt{clear\_session()} after setting the mixed-precision
+policy and before constructing the model. In the installed Keras version,
+\texttt{clear\_session()} resets global Keras state, including the global dtype
+policy. The recorded result is therefore consistent with the model being built
+under \texttt{float32}. This experiment must not be used as evidence that Tensor
+Cores or mixed precision produced the measured result.
+
+The intended order should be:
+
+\begin{lstlisting}[language=Python]
+tf.keras.backend.clear_session()
+tf.keras.mixed_precision.set_global_policy(
+    'mixed_float16' if gpus else 'float32'
+)
+
+with strategy.scope():
+    model = build_model()
+
+print('Policy after model creation:',
+      tf.keras.mixed_precision.global_policy().name)
+print('First Conv1D policy:', model.layers[1].dtype_policy)
+\end{lstlisting}
+
+The output classification layer should remain explicitly \texttt{float32} for
+numerical stability. After correcting the order, the proposed pipeline must be
+rerun before reporting a mixed-precision speedup.
+
+\section{What can and cannot be concluded}
+
+\subsection{Supported conclusions}
+
+For the exact three runs examined here:
+
+\begin{itemize}
+    \item The proposed complete pipeline improves test accuracy by 3.82
+          percentage points and macro F1 by 1.39 percentage points.
+    \item It reduces the train--test accuracy gap by 10.68 percentage points.
+    \item It uses 87.12\% fewer parameters.
+    \item It is approximately 10.7 times slower per steady-state epoch.
+    \item Its improvement is concentrated in a subset of classes rather than
+          being uniform across all 17 classes.
+    \item The tsai ResNet and proposed LSTM have nearly identical test
+          accuracy: 60.29\% and 60.00\%, respectively.
+    \item Tsai improves test macro F1 by 2.65 percentage points over the
+          proposed LSTM, but has a 6.57-point larger train--test accuracy gap.
+    \item Tsai is approximately 3.55\% faster per steady-state epoch while
+          using one GPU instead of the LSTM's two replicas.
+    \item Tsai and the LSTM make complementary class-level errors, especially
+          for classes 12 and 16.
+\end{itemize}
+
+\subsection{Unsupported causal claims}
+
+The experiment does not establish that the accuracy gain was caused
+specifically by sigmoid, AdamW, Dropout, the input transpose, or any other
+single change. All of these components changed together. It also does not show
+that mixed precision accelerated training, because the recorded policy was
+\texttt{float32}. The tsai--LSTM comparison also does not isolate architecture
+alone because the frameworks, optimizer schedules, device counts, and
+model-selection procedures differ. Finally, one training seed and one grouped
+split are insufficient for a strong claim of general superiority.
+
+\section{Recommended follow-up experiments}
+
+The following sequence would isolate the contribution of each modification:
+
+\begin{enumerate}
+    \item Use the same grouped split, Z-score normalization, batch size, GPU
+          count, precision, early-stopping metric, and patience for every run.
+    \item Start from the teacher-reference pipeline and change only the input
+          orientation from \texttt{(27, 6000)} to \texttt{(6000, 27)}.
+    \item Change only the LSTM recurrent activation from softmax to sigmoid.
+    \item Add Dropout, then L2, then AdamW in separate ablations.
+    \item Evaluate one-GPU and two-GPU execution separately.
+    \item Add identical early stopping and best-weight restoration to the tsai
+          and proposed-LSTM experiments.
+    \item Correct the mixed-precision initialization and compare float32 with
+          mixed float16 under otherwise identical settings.
+    \item Repeat each final configuration with at least five training seeds and
+          report mean $\pm$ standard deviation.
+    \item Evaluate multiple held-out setup combinations or grouped
+          cross-validation to test sensitivity to setup IDs 5 and 8.
+    \item Save per-sample predictions so that paired tests such as McNemar's
+          test can assess whether the 13-sample teacher-to-LSTM improvement and
+          one-sample tsai-to-LSTM difference are statistically reliable.
+    \item Evaluate probability averaging or stacking between tsai and the LSTM
+          because their errors on classes 12 and 16 are complementary.
+\end{enumerate}
 
 \section{Conclusion}
-Week 2 established the model-ready time-series interface for the cleaned Z24 dataset and implemented two comparable classification backends. The main deliverable is a reproducible path from manifest metadata to fixed windows, training-only normalization, model training, and final evaluation. The current metrics demonstrate that the models can fit the training windows but do not yet generalize reliably to unseen recordings. Correcting the DCNN input layout and evaluating the limited recording-level sample size are prerequisites for a defensible model comparison.
+
+The proposed 1DCNN--LSTM--ResNet pipeline provides a more physically natural
+time-series representation and improves generalization in the observed run.
+Compared with the teacher-reference adaptation, it increases test accuracy
+from 56.18\% to 60.00\%, increases macro F1 from 53.63\% to 55.02\%, and
+reduces the train--test accuracy gap. These improvements are consistent with
+the addition of regularization and the reduction in model capacity, but the
+experiment does not isolate their individual effects.
+
+The cost is substantial: the proposed model is approximately 10.7 times
+slower per steady-state epoch because it processes a 3,000-step recurrent
+sequence instead of an approximately 14-step sequence. Its gain also depends
+heavily on classes 4 and 16, while performance deteriorates for classes 0, 3,
+5, and 12 and remains zero for class 15. Therefore, the most defensible
+conclusion is that the proposed pipeline offers a modest but uneven
+generalization improvement at a large computational cost. Controlled
+ablations, repeated runs, and a corrected mixed-precision experiment are
+required before attributing the improvement to a specific design decision.
+
+The tsai ResNet provides the strongest macro-F1 result, 57.67\%, and essentially
+ties the proposed LSTM in test accuracy while using one GPU. It is therefore a
+competitive and computationally simpler baseline for this dataset. However,
+it reaches 100\% train accuracy, has a larger train--test gap than the proposed
+LSTM, and completely misses classes 15 and 16. The current evidence supports
+retaining both models for further study rather than declaring one universally
+superior: tsai is preferable by macro F1 and single-GPU efficiency, while the
+proposed LSTM exhibits less overfitting and uniquely recognizes class 16.
 
 \end{document}
