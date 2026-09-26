@@ -110,6 +110,38 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(report["efficiency"].loc["tsai_001", "run_source"], str(archive))
             self.assertEqual(skipped, [])
 
+    def test_custom_model_split_and_metrics(self):
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "results"
+            self.make_run(output / "dcnn_002", "dcnn_002", archive=True)
+            self.make_run(output / "tsai_001", "tsai_001", archive=True)
+            report, skipped = build_comparison_report(
+                [output], output,
+                experiment_ids=("tsai_001", "dcnn_002"),
+                score_split="validation",
+                score_metrics=("f1_macro", "accuracy"),
+                split_metric="recall_macro",
+                speed_metric="precision_macro",
+            )
+            self.assertEqual(report["experiments"], ["tsai_001", "dcnn_002"])
+            self.assertEqual(report["missing_experiments"], [])
+            self.assertEqual(list(report["selected_quality"].columns), ["f1_macro", "accuracy"])
+            self.assertAlmostEqual(report["selected_quality"].loc["tsai_001", "f1_macro"], 0.7)
+            options = json.loads((report["directory"] / "comparison_config.json").read_text())
+            self.assertEqual(options["score_split"], "validation")
+            self.assertEqual(options["speed_metric"], "precision_macro")
+            self.assertEqual(skipped, [])
+
+    def test_invalid_comparison_options_fail_before_writing(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ValueError, "Unknown score_split"):
+                build_comparison_report([root], root, score_split="dev")
+            with self.assertRaisesRegex(ValueError, "Unknown metric"):
+                build_comparison_report([root], root, score_metrics=("accuracy", "auc"))
+            with self.assertRaisesRegex(ValueError, "Unknown experiment"):
+                build_comparison_report([root], root, experiment_ids=("new_model",))
+
     def test_run_timestamp_wins_over_archive_upload_time(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

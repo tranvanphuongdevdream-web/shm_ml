@@ -135,53 +135,58 @@ def _check_same_evaluation(runs):
             )
 
 
-def _save_bar_charts(runs, directory: Path):
+def _save_bar_charts(
+    runs, directory: Path, *, score_split, score_metrics, split_metric, speed_metric
+):
     names = [run.experiment for run in runs]
     positions = np.arange(len(runs))
-    width = 0.19
+    width = min(0.8 / len(score_metrics), 0.25)
     chart_paths = {}
 
     fig, axis = plt.subplots(figsize=(max(8, 2.5 * len(runs)), 5))
-    for index, metric in enumerate(METRICS):
-        scores = [run.metrics.loc["test", metric] for run in runs]
-        axis.bar(positions + (index - 1.5) * width, scores, width, label=metric)
+    for index, metric in enumerate(score_metrics):
+        scores = [run.metrics.loc[score_split, metric] for run in runs]
+        axis.bar(
+            positions + (index - (len(score_metrics) - 1) / 2) * width,
+            scores, width, label=metric,
+        )
     axis.set_xticks(positions, names)
     axis.set_ylim(0, 1)
     axis.set_ylabel("Score")
-    axis.set_title("Test-set classification metrics (macro averages)")
+    axis.set_title(f"{score_split.title()}-set classification metrics (macro averages)")
     axis.grid(axis="y", alpha=0.25)
     axis.legend(fontsize=8)
     fig.tight_layout()
-    chart_paths["Test metrics"] = directory / "test_metrics.png"
-    fig.savefig(chart_paths["Test metrics"], dpi=160, bbox_inches="tight")
+    chart_paths["Selected metrics"] = directory / "selected_metrics.png"
+    fig.savefig(chart_paths["Selected metrics"], dpi=160, bbox_inches="tight")
     plt.close(fig)
 
     fig, axis = plt.subplots(figsize=(max(8, 2.5 * len(runs)), 5))
     for index, split in enumerate(SPLITS):
-        scores = [run.metrics.loc[split, "accuracy"] for run in runs]
+        scores = [run.metrics.loc[split, split_metric] for run in runs]
         axis.bar(positions + (index - 1) * 0.25, scores, 0.25, label=split)
     axis.set_xticks(positions, names)
     axis.set_ylim(0, 1)
-    axis.set_ylabel("Accuracy")
-    axis.set_title("Train / validation / test accuracy")
+    axis.set_ylabel(split_metric)
+    axis.set_title(f"Train / validation / test {split_metric}")
     axis.grid(axis="y", alpha=0.25)
     axis.legend()
     fig.tight_layout()
-    chart_paths["Accuracy by split"] = directory / "accuracy_by_split.png"
-    fig.savefig(chart_paths["Accuracy by split"], dpi=160, bbox_inches="tight")
+    chart_paths["Metric by split"] = directory / "metric_by_split.png"
+    fig.savefig(chart_paths["Metric by split"], dpi=160, bbox_inches="tight")
     plt.close(fig)
 
     fig, axis = plt.subplots(figsize=(8, 5))
     for run in runs:
         seconds = float(run.benchmark["mean_epoch_seconds_excluding_first"])
-        score = float(run.metrics.loc["test", "f1_macro"])
+        score = float(run.metrics.loc[score_split, speed_metric])
         if seconds <= 0:
             raise ValueError(f"Invalid mean epoch time in {run.source}")
         axis.scatter(seconds, score, s=100, label=run.experiment)
     axis.set_xscale("log")
     axis.set_ylim(0, 1)
     axis.set_xlabel("Mean epoch time after first epoch (seconds, log scale)")
-    axis.set_ylabel("Test macro F1")
+    axis.set_ylabel(f"{score_split} {speed_metric}")
     axis.set_title("Training speed vs. test quality")
     axis.grid(True, alpha=0.25)
     axis.legend()
@@ -192,9 +197,30 @@ def _save_bar_charts(runs, directory: Path):
     return chart_paths
 
 
-def build_comparison_report(roots, output_root):
+def build_comparison_report(
+    roots, output_root, *, experiment_ids=None, score_split="test",
+    score_metrics=None, split_metric="accuracy", speed_metric="f1_macro",
+):
     """Write comparison tables/charts and return their data for notebook display."""
-    runs, skipped = select_latest_runs(roots)
+    experiment_ids = tuple(EXPERIMENT_IDS if experiment_ids is None else experiment_ids)
+    score_metrics = tuple(METRICS if score_metrics is None else score_metrics)
+    if not experiment_ids or len(set(experiment_ids)) != len(experiment_ids):
+        raise ValueError("experiment_ids must contain unique experiment IDs")
+    if not score_metrics or len(set(score_metrics)) != len(score_metrics):
+        raise ValueError("score_metrics must contain unique metrics")
+    for experiment in experiment_ids:
+        if experiment not in EXPERIMENT_IDS:
+            raise ValueError(f"Unknown experiment {experiment!r}; choose from {EXPERIMENT_IDS}")
+    if score_split not in SPLITS:
+        raise ValueError(f"Unknown score_split {score_split!r}; choose from {SPLITS}")
+    for metric in (*score_metrics, split_metric, speed_metric):
+        if metric not in METRICS:
+            raise ValueError(f"Unknown metric {metric!r}; choose from {METRICS}")
+
+    available_runs, skipped = select_latest_runs(roots)
+    by_experiment = {run.experiment: run for run in available_runs}
+    runs = [by_experiment[name] for name in experiment_ids if name in by_experiment]
+    missing_experiments = [name for name in experiment_ids if name not in by_experiment]
     if not runs:
         return None, skipped
     _check_same_evaluation(runs)
@@ -226,6 +252,7 @@ def build_comparison_report(roots, output_root):
         })
     quality = pd.DataFrame(metric_rows).set_index(["experiment", "split"])
     efficiency = pd.DataFrame(benchmark_rows).set_index("experiment")
+    selected_quality = quality.xs(score_split, level="split").loc[:, list(score_metrics)]
 
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -237,18 +264,34 @@ def build_comparison_report(roots, output_root):
         suffix += 1
     directory.mkdir()
     quality.to_csv(directory / "quality_by_split.csv")
+    selected_quality.to_csv(directory / "selected_quality.csv")
     efficiency.to_csv(directory / "training_benchmark.csv")
     (directory / "selected_runs.json").write_text(
         json.dumps({run.experiment: str(run.source) for run in runs}, indent=2),
         encoding="utf-8",
     )
-    charts = _save_bar_charts(runs, directory)
+    (directory / "comparison_config.json").write_text(
+        json.dumps({
+            "experiment_ids": experiment_ids,
+            "score_split": score_split,
+            "score_metrics": score_metrics,
+            "split_metric": split_metric,
+            "speed_metric": speed_metric,
+        }, indent=2),
+        encoding="utf-8",
+    )
+    charts = _save_bar_charts(
+        runs, directory, score_split=score_split, score_metrics=score_metrics,
+        split_metric=split_metric, speed_metric=speed_metric,
+    )
     return {
         "quality": quality,
+        "selected_quality": selected_quality,
         "efficiency": efficiency,
         "charts": charts,
         "directory": directory,
         "experiments": [run.experiment for run in runs],
+        "missing_experiments": missing_experiments,
         "same_gpu": efficiency["gpu"].nunique() == 1,
     }, skipped
 
