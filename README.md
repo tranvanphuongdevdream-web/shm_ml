@@ -74,7 +74,7 @@ Each command runs **one** experiment. Native Windows TensorFlow may use the CPU,
 
 The runner clones the repository once per Kaggle session and reuses that local clone on repeated runs. Restart the Kaggle session when you need it to clone a newly pushed commit.
 
-On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository and, for `tsai_001`, install missing packages from PyPI. The notebook uses `--no-deps` for these targeted installs to preserve Kaggle's CUDA-enabled PyTorch. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
+On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository and, for `tsai_001`, download missing packages directly from PyPI. Cell 3 shows download progress and checks each wheel's SHA-256 hash; downloaded files are temporary and are not committed to GitHub. It installs them with `--no-deps` to preserve Kaggle's CUDA-enabled PyTorch. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
 
 ## Execution flow and input/output by file
 
