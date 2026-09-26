@@ -74,6 +74,20 @@ Each command runs **one** experiment. Native Windows TensorFlow may use the CPU,
 
 The runner makes a fresh shallow clone under `/kaggle/temp` on every run. This avoids stale code and `git pull` on an older clone; there is no commit-specific path to edit. Temporary clones disappear with the Kaggle session. Changes to `src/` and `configs/` are picked up automatically after a push, while changes to the runner notebook itself still require updating the Kaggle notebook copy.
 
+## Compare experiments
+
+Cell 7 of the Kaggle runner creates two tables (accuracy/precision/recall/F1 for each split, and training speed/model size/generalization gap) and three charts (test metrics, train/validation/test accuracy, and test F1 versus mean epoch time). It saves CSV and PNG files under `/kaggle/working/results/comparison_<timestamp>/`. To inspect existing result artifacts without retraining, run only Cells 1, 2, and 7.
+
+The comparison uses the newest **completed full-training** run of each experiment ID. Failed runs and one-epoch smoke tests are excluded. It checks that the runs share the same seed, setup split, sample counts, number of classes, and normalization. It does not hash the large NPY files, so confirm that all attached runs used the same dataset version. Training-time comparisons require comparable hardware; the notebook warns if the GPU names differ. Total training time also depends on the number of epochs, so use mean epoch time for the speed chart.
+
+Kaggle sessions do not automatically contain earlier runs. To compare experiments trained in different sessions, attach their downloaded `dcnn_001_*.zip`, `dcnn_002_*.zip`, or `tsai_001_*.zip` result archives as Kaggle Inputs. Cell 7 scans both `/kaggle/working/results/` and `/kaggle/input/`; it does not retrain models or read the large NPY arrays. With only one available run, it still produces a one-model report and tells you that more runs are needed for cross-model comparison.
+
+For completed local runs, generate the same report with:
+
+```powershell
+python -m src.reporting --results artifacts
+```
+
 On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository and, for `tsai_001`, download missing packages directly from PyPI. Cell 3 shows download progress, checks each wheel's SHA-256 hash, and unpacks compatible wheels into temporary `/kaggle/temp/shm_runtime_packages/` because invoking `pip` hangs in this Kaggle runtime. No wheel is committed to GitHub or installed into Kaggle's system Python, so its CUDA-enabled PyTorch stays unchanged. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
 
 ## Execution flow and input/output by file
@@ -138,6 +152,7 @@ src/experiments/dcnn_001.py     Model and training procedure for dcnn_001
 src/experiments/dcnn_002.py     Model and training procedure for dcnn_002
 src/experiments/tsai_001.py     Model and training procedure for tsai_001
 src/evaluation.py               Accuracy and macro precision/recall/F1
+src/reporting.py                Tables and charts comparing completed runs
 notebooks/kaggle_runner.ipynb   Starts training on Kaggle
 ```
 
