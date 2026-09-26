@@ -74,7 +74,7 @@ Each command runs **one** experiment. Native Windows TensorFlow may use the CPU,
 
 The runner clones the repository once per Kaggle session and reuses that local clone on repeated runs. Restart the Kaggle session when you need it to clone a newly pushed commit.
 
-On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository. For `tsai_001`, the notebook reads dependencies from the single `requirements.txt` and installs tsai with `--no-deps` to preserve Kaggle's CUDA-enabled PyTorch. Run each experiment in a fresh Kaggle session so frameworks do not retain GPU memory between experiments.
+On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed only to clone the repository. For `tsai_001`, the notebook installs the bundled `pyts` and `tsai` wheels from `vendor/wheels/` with `--no-deps`, verifies their SHA-256 hashes, and preserves Kaggle's CUDA-enabled PyTorch. Run each experiment in a fresh Kaggle session so frameworks do not retain GPU memory between experiments.
 
 ## Execution flow and input/output by file
 
@@ -139,6 +139,7 @@ src/experiments/dcnn_002.py     Model and training procedure for dcnn_002
 src/experiments/tsai_001.py     Model and training procedure for tsai_001
 src/evaluation.py               Accuracy and macro precision/recall/F1
 notebooks/kaggle_runner.ipynb   Starts training on Kaggle
+vendor/wheels/                  Offline pyts and tsai wheels for Kaggle
 ```
 
 Each run saves `config.json`, `dataset.json`, `experiment.json`, `history.csv`, `split_metrics.csv`, benchmark results, confusion matrices, Z-score statistics, and the trained model. Local results go to `artifacts/`; Kaggle results go to `/kaggle/working/results/`.
