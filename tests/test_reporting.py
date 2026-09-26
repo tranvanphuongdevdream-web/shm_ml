@@ -67,7 +67,8 @@ class ReportingTests(unittest.TestCase):
             root = Path(directory)
             output = root / "results"
             attached = root / "input"
-            self.make_run(output, "dcnn_001", accuracy=0.65)
+            run_dir = self.make_run(output, "dcnn_001", accuracy=0.65)
+            run_dir.rename(output / "dcnn_001")
             self.make_run(attached, "dcnn_002", accuracy=0.7, archive=True)
             self.make_run(attached, "tsai_001", status="failed")
             self.make_run(output / "smoke", "tsai_001", action="smoke")
@@ -99,6 +100,15 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(report["experiments"], ["tsai_001"])
             self.assertEqual(skipped, [])
             self.assertTrue(all(path.is_file() for path in report["charts"].values()))
+
+    def test_comparison_reads_zip_only_model_folder(self):
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "results"
+            archive = self.make_run(output / "tsai_001", "tsai_001", archive=True)
+            report, skipped = build_comparison_report([output], output)
+            self.assertEqual(report["experiments"], ["tsai_001"])
+            self.assertEqual(report["efficiency"].loc["tsai_001", "run_source"], str(archive))
+            self.assertEqual(skipped, [])
 
     def test_run_timestamp_wins_over_archive_upload_time(self):
         with TemporaryDirectory() as directory:

@@ -21,8 +21,8 @@ If you omit `--experiment`, the default is `dcnn_002`.
 | Action | What it does | Output |
 | --- | --- | --- |
 | `check` | Loads and validates the dataset and setup-based split | Prints shapes and train/validation/test sizes; does not train |
-| `smoke` | Runs the full pipeline on real data for one epoch with batch size at most 8 | Saves results under `artifacts/`; does not create a ZIP |
-| `train` | Trains with the epochs and batch size from the selected config | Saves results and a ZIP under `artifacts/` |
+| `smoke` | Runs the full pipeline on real data for one epoch with batch size at most 8 | Saves one ZIP under `artifacts/<ID>/`; not used for final benchmarks |
+| `train` | Trains with the epochs and batch size from the selected config | Saves one ZIP containing all run artifacts under `artifacts/<ID>/` |
 
 `smoke` changes the parameters only for that run; it does not edit the JSON config. One-epoch results verify that the pipeline works, but are not final benchmark results.
 
@@ -88,7 +88,7 @@ For completed local runs, generate the same report with:
 python -m src.reporting --results artifacts
 ```
 
-On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository and, for `tsai_001`, download missing packages directly from PyPI. Cell 3 shows download progress, checks each wheel's SHA-256 hash, and unpacks compatible wheels into temporary `/kaggle/temp/shm_runtime_packages/` because invoking `pip` hangs in this Kaggle runtime. No wheel is committed to GitHub or installed into Kaggle's system Python, so its CUDA-enabled PyTorch stays unchanged. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
+On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Each experiment writes timestamped ZIP files directly under `/kaggle/working/results/<ID>/`, without run subfolders or duplicate loose files. For example, `/kaggle/working/results/tsai_001/tsai_001_DD-MM-YY_HH-MM-SS.zip` contains the model, metadata, metrics, history, and charts. Repeating an experiment creates another ZIP, without overwriting earlier runs. The Kaggle notebook reads its metrics and charts directly from the ZIP. Internet access is needed to clone the repository and, for `tsai_001`, download missing packages directly from PyPI. Cell 3 shows download progress, checks each wheel's SHA-256 hash, and unpacks compatible wheels into temporary `/kaggle/temp/shm_runtime_packages/` because invoking `pip` hangs in this Kaggle runtime. No wheel is committed to GitHub or installed into Kaggle's system Python, so its CUDA-enabled PyTorch stays unchanged. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
 
 ## Execution flow and input/output by file
 
@@ -101,7 +101,7 @@ flowchart TD
     C --> D["src/data/z24_dataset.py<br/>Load → split → change layout → Z-score"]
     D --> E["src/experiments/dcnn_002.py<br/>Build model → train → predict"]
     E --> F["src/evaluation.py<br/>Compare predictions with labels; compute metrics"]
-    F --> G["artifacts/dcnn_002_26-09-26_05-19-46/<br/>Model, metrics, config, and plots"]
+    F --> G["artifacts/dcnn_002/dcnn_002_*.zip<br/>Model, metrics, config, and plots inside"]
 ```
 
 | File | Example input | Example output |
@@ -111,7 +111,7 @@ flowchart TD
 | `src/data/z24_dataset.py` | `inputs.npy` `(1530, 27, 6000)` and `labels.npy` `(1530,)` | Train `(1020, 6000, 27)`, validation `(170, 6000, 27)`, test `(340, 6000, 27)`; Z-score using training-set statistics |
 | `src/experiments/dcnn_002.py` | Prepared train/validation/test arrays; training batches have shape `(8, 6000, 27)` | Trained model, training history, and predictions for all three splits |
 | `src/evaluation.py` | True labels and predictions, such as `true=[2,4,1]`, `pred=[2,3,1]` | Accuracy, macro precision/recall/F1, and a confusion matrix for each split |
-| `artifacts/dcnn_002_DD-MM-YY_HH-MM-SS/` | Model, config, split, and metrics | Model file, `split_metrics.csv`, `history.csv`, `experiment.json`, and plots; a smoke run creates no ZIP |
+| `artifacts/dcnn_002/dcnn_002_*.zip` | Model, config, split, and metrics | ZIP containing model file, `split_metrics.csv`, `history.csv`, `experiment.json`, and plots |
 
 Small example of the layout change for `dcnn_002` (the real data has 27 sensors and 6,000 time samples):
 
@@ -156,4 +156,4 @@ src/reporting.py                Tables and charts comparing completed runs
 notebooks/kaggle_runner.ipynb   Starts training on Kaggle
 ```
 
-Each run saves `config.json`, `dataset.json`, `experiment.json`, `history.csv`, `split_metrics.csv`, benchmark results, confusion matrices, Z-score statistics, and the trained model. Local results go to `artifacts/`; Kaggle results go to `/kaggle/working/results/`.
+Each run packs `config.json`, `dataset.json`, `experiment.json`, `history.csv`, `split_metrics.csv`, benchmark results, confusion matrices, learning curves, split-performance chart, Z-score statistics, and the trained model into one ZIP. Local ZIPs go to `artifacts/<ID>/`; Kaggle ZIPs go to `/kaggle/working/results/<ID>/`. Temporary training files are removed after packaging. Failed runs are also packaged with a `_failed.zip` suffix for debugging; comparison ignores them. Comparison reports remain under the shared `results/comparison_<timestamp>/` directory.

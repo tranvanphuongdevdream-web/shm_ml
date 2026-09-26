@@ -7,6 +7,8 @@ import importlib
 import json
 import shutil
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 
@@ -19,7 +21,7 @@ from src.data.z24_dataset import (
     resolve_data_source,
     split_by_setup,
 )
-from src.evaluation import save_json
+from src.evaluation import save_json, save_training_charts
 
 
 EXPERIMENT_MODULES = {
@@ -136,37 +138,54 @@ def run(action, experiment_name):
 
     output_root = default_output_root().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    model_dir = output_root / experiment_name
+    model_dir.mkdir(exist_ok=True)
     run_id = datetime.now().strftime("%d-%m-%y_%H-%M-%S")
-    artifact_dir = output_root / f"{experiment_name}_{run_id}"
-    artifact_dir.mkdir(exist_ok=False)
-    print(f"Artifacts directory: {artifact_dir}", flush=True)
-    save_json(artifact_dir / "config.json", config)
-    save_json(artifact_dir / "dataset.json", dataset_summary(prepared))
+    archive = model_dir / f"{experiment_name}_{run_id}.zip"
+    if archive.exists():
+        raise FileExistsError(f"Run archive already exists: {archive}")
 
-    print(f"Loading experiment module: {EXPERIMENT_MODULES[experiment_name]}", flush=True)
-    experiment = importlib.import_module(EXPERIMENT_MODULES[experiment_name])
-    print("Starting model training...", flush=True)
-    try:
-        benchmark = experiment.run(config, prepared, artifact_dir)
-    except Exception:
+    with TemporaryDirectory(prefix=f".{experiment_name}_", dir=output_root) as temporary_dir:
+        artifact_dir = Path(temporary_dir) / "artifacts"
+        artifact_dir.mkdir()
+        print(f"Temporary training artifacts: {artifact_dir}", flush=True)
+        save_json(artifact_dir / "config.json", config)
+        save_json(artifact_dir / "dataset.json", dataset_summary(prepared))
+
+        def pack(destination):
+            if destination.exists():
+                raise FileExistsError(f"Run archive already exists: {destination}")
+            staged_archive = shutil.make_archive(
+                str(Path(temporary_dir) / destination.stem), "zip", root_dir=artifact_dir
+            )
+            shutil.move(staged_archive, destination)
+            print(f"Download archive: {destination}", flush=True)
+            return destination
+
+        print(f"Loading experiment module: {EXPERIMENT_MODULES[experiment_name]}", flush=True)
+        experiment = importlib.import_module(EXPERIMENT_MODULES[experiment_name])
+        print("Starting model training...", flush=True)
+        try:
+            benchmark = experiment.run(config, prepared, artifact_dir)
+            save_training_charts(artifact_dir)
+        except Exception:
+            save_json(artifact_dir / "experiment.json", {
+                "status": "failed",
+                "action": action,
+                "config": config,
+                "dataset": dataset_summary(prepared),
+            })
+            failed_archive = model_dir / f"{experiment_name}_{run_id}_failed.zip"
+            pack(failed_archive)
+            raise
         save_json(artifact_dir / "experiment.json", {
-            "status": "failed",
+            "status": "completed",
             "action": action,
             "config": config,
             "dataset": dataset_summary(prepared),
+            "benchmark": benchmark,
         })
-        raise
-    save_json(artifact_dir / "experiment.json", {
-        "status": "completed",
-        "action": action,
-        "config": config,
-        "dataset": dataset_summary(prepared),
-        "benchmark": benchmark,
-    })
-    print(f"Artifacts: {artifact_dir}")
-    if action == "train":
-        archive = shutil.make_archive(str(artifact_dir), "zip", root_dir=artifact_dir)
-        print(f"Download archive: {archive}")
+        return pack(archive)
 
 
 def main(argv=None):

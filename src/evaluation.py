@@ -65,5 +65,41 @@ def save_evaluation(artifact_dir, metrics, report, matrix, num_classes):
     plt.close(fig)
 
 
+def save_training_charts(artifact_dir):
+    """Save notebook-ready charts before the run is packed into a ZIP."""
+    artifact_dir = Path(artifact_dir)
+    history = pd.read_csv(artifact_dir / "history.csv")
+    if not history.empty:
+        epochs = history["epoch"] if "epoch" in history else range(1, len(history) + 1)
+        fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+        for axis, title, columns in (
+            (axes[0], "Loss by epoch", ("loss", "val_loss", "train_loss", "valid_loss")),
+            (axes[1], "Accuracy by epoch", ("accuracy", "val_accuracy")),
+        ):
+            available = [column for column in columns if column in history]
+            for column in available:
+                axis.plot(epochs, history[column], label=column)
+            if available:
+                axis.set_title(title)
+                axis.set_xlabel("Epoch")
+                axis.grid(True, alpha=0.3)
+                axis.legend()
+            else:
+                axis.set_visible(False)
+        fig.tight_layout()
+        fig.savefig(artifact_dir / "learning_curves.png", dpi=160, bbox_inches="tight")
+        plt.close(fig)
+
+    metrics = pd.read_csv(artifact_dir / "split_metrics.csv", index_col="split")
+    axis = metrics[["accuracy", "f1_macro"]].plot.bar(figsize=(8, 4), rot=0)
+    axis.set_title("Performance by split")
+    axis.set_ylabel("Score")
+    axis.set_ylim(0, 1)
+    axis.grid(axis="y", alpha=0.3)
+    axis.figure.tight_layout()
+    axis.figure.savefig(artifact_dir / "split_performance.png", dpi=160, bbox_inches="tight")
+    plt.close(axis.figure)
+
+
 def save_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2), encoding="utf-8")
