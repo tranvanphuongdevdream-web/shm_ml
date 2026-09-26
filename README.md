@@ -68,13 +68,13 @@ Each command runs **one** experiment. Native Windows TensorFlow may use the CPU,
 
 1. Commit and push the code version you want to train to GitHub. Keep the dataset on Kaggle.
 2. Attach the Kaggle Dataset named `dataset`, containing `inputs.npy` and `labels.npy`.
-3. Enable a GPU and open `notebooks/kaggle_runner.ipynb`.
+3. Enable a GPU and Internet access, then open `notebooks/kaggle_runner.ipynb`.
 4. Set `EXPERIMENT_ID` in the first code cell to `dcnn_001`, `dcnn_002`, or `tsai_001`.
 5. Select **Run All**. The notebook clones the repository, runs `python run.py train --experiment <ID>`, then displays split metrics, the training benchmark, learning curves, and the test confusion matrix.
 
 The runner clones the repository once per Kaggle session and reuses that local clone on repeated runs. Restart the Kaggle session when you need it to clone a newly pushed commit.
 
-On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed only to clone the repository. For `tsai_001`, the notebook installs bundled `pyts`, `psutil`, and `tsai` wheels from `vendor/wheels/` with `--no-deps`, verifies their SHA-256 hashes, and preserves Kaggle's CUDA-enabled PyTorch. Run each experiment in a fresh Kaggle session so frameworks do not retain GPU memory between experiments.
+On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository and, for `tsai_001`, install missing packages from PyPI. The notebook uses `--no-deps` for these targeted installs to preserve Kaggle's CUDA-enabled PyTorch. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
 
 ## Execution flow and input/output by file
 
@@ -139,7 +139,6 @@ src/experiments/dcnn_002.py     Model and training procedure for dcnn_002
 src/experiments/tsai_001.py     Model and training procedure for tsai_001
 src/evaluation.py               Accuracy and macro precision/recall/F1
 notebooks/kaggle_runner.ipynb   Starts training on Kaggle
-vendor/wheels/                  Offline pyts and tsai wheels for Kaggle
 ```
 
 Each run saves `config.json`, `dataset.json`, `experiment.json`, `history.csv`, `split_metrics.csv`, benchmark results, confusion matrices, Z-score statistics, and the trained model. Local results go to `artifacts/`; Kaggle results go to `/kaggle/working/results/`.
