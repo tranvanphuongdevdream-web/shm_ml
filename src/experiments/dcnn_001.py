@@ -176,7 +176,59 @@ def run(config, prepared, artifact_dir):
         def on_epoch_end(self, epoch, logs=None):
             self.epoch_seconds.append(time.perf_counter() - self.started)
 
+    class TrainingProgress(tf.keras.callbacks.Callback):
+        """Print stable, notebook-friendly progress without a TTY progress bar."""
+
+        def __init__(self, total_epochs):
+            super().__init__()
+            self.total_epochs = total_epochs
+
+        @staticmethod
+        def _metrics(logs, names):
+            logs = logs or {}
+            return " | ".join(
+                f"{name}={float(logs[name]):.4f}" for name in names if name in logs
+            )
+
+        def on_train_begin(self, logs=None):
+            self.steps = int(self.params.get("steps") or 0)
+            self.log_interval = max(1, self.steps // 10) if self.steps else 1
+            print(
+                f"[train] Starting {self.total_epochs} epoch(s), "
+                f"{self.steps or 'unknown'} batches per epoch",
+                flush=True,
+            )
+
+        def on_epoch_begin(self, epoch, logs=None):
+            self.epoch = epoch
+            self.epoch_started = time.perf_counter()
+            print(f"[train] Epoch {epoch + 1}/{self.total_epochs} started", flush=True)
+
+        def on_train_batch_end(self, batch, logs=None):
+            completed = batch + 1
+            if completed % self.log_interval == 0 or completed == self.steps:
+                percent = 100.0 * completed / self.steps if self.steps else 0.0
+                metrics = self._metrics(logs, ("loss", "accuracy"))
+                print(
+                    f"[train] Epoch {self.epoch + 1}/{self.total_epochs} | "
+                    f"batch {completed}/{self.steps} ({percent:.0f}%)"
+                    + (f" | {metrics}" if metrics else ""),
+                    flush=True,
+                )
+
+        def on_epoch_end(self, epoch, logs=None):
+            seconds = time.perf_counter() - self.epoch_started
+            metrics = self._metrics(
+                logs, ("loss", "accuracy", "val_loss", "val_accuracy")
+            )
+            print(
+                f"[train] Epoch {epoch + 1}/{self.total_epochs} completed "
+                f"in {seconds:.1f}s" + (f" | {metrics}" if metrics else ""),
+                flush=True,
+            )
+
     timer = EpochTimer()
+    total_epochs = int(config["epochs"])
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
             monitor=config["early_stopping_monitor"],
@@ -190,6 +242,7 @@ def run(config, prepared, artifact_dir):
             mode=config["early_stopping_mode"],
             save_best_only=True,
         ),
+        TrainingProgress(total_epochs),
         timer,
     ]
 
@@ -199,9 +252,9 @@ def run(config, prepared, artifact_dir):
         history = model.fit(
             train_data,
             validation_data=validation_data,
-            epochs=int(config["epochs"]),
+            epochs=total_epochs,
             callbacks=callbacks,
-            verbose=1,
+            verbose=0,
         )
     else:
         history = model.fit(
@@ -209,10 +262,10 @@ def run(config, prepared, artifact_dir):
             y_train,
             validation_data=(x_validation, y_validation),
             batch_size=int(config["batch_size"]),
-            epochs=int(config["epochs"]),
+            epochs=total_epochs,
             shuffle=True,
             callbacks=callbacks,
-            verbose=1,
+            verbose=0,
         )
     training_seconds = time.perf_counter() - started
 
