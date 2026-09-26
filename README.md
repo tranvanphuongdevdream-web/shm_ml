@@ -70,9 +70,9 @@ Each command runs **one** experiment. Native Windows TensorFlow may use the CPU,
 2. Attach the Kaggle Dataset named `dataset`, containing `inputs.npy` and `labels.npy`.
 3. Enable a GPU and Internet access, then open `notebooks/kaggle_runner.ipynb`.
 4. Set `EXPERIMENT_ID` in the first code cell to `dcnn_001`, `dcnn_002`, or `tsai_001`.
-5. Select **Run All**. The notebook clones the repository, runs `python run.py train --experiment <ID>`, then displays split metrics, the training benchmark, learning curves, and the test confusion matrix.
+5. Select **Run All**. The notebook clones the repository, calls the same training pipeline as `python run.py train --experiment <ID>`, then displays split metrics, the training benchmark, learning curves, and the test confusion matrix.
 
-The runner clones the repository on the first run and fast-forwards its local clone on later runs, so the training code matches the latest pushed commit. It refuses to overwrite local edits in that clone.
+The runner makes a fresh shallow clone under `/kaggle/temp` on every run. This avoids stale code and `git pull` on an older clone; there is no commit-specific path to edit. Temporary clones disappear with the Kaggle session. Changes to `src/` and `configs/` are picked up automatically after a push, while changes to the runner notebook itself still require updating the Kaggle notebook copy.
 
 On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository and, for `tsai_001`, download missing packages directly from PyPI. Cell 3 shows download progress, checks each wheel's SHA-256 hash, and unpacks compatible wheels into temporary `/kaggle/temp/shm_runtime_packages/` because invoking `pip` hangs in this Kaggle runtime. No wheel is committed to GitHub or installed into Kaggle's system Python, so its CUDA-enabled PyTorch stays unchanged. Run each experiment in a fresh Kaggle session so frameworks do not retain each other's GPU memory.
 
