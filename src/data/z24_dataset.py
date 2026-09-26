@@ -28,6 +28,24 @@ def default_output_root() -> Path:
     return kaggle_working / "results" if kaggle_working.is_dir() else project_root() / "artifacts"
 
 
+def find_npy_pair(input_root: Path) -> tuple[Path, Path]:
+    """Find exactly one attached dataset containing both Z24 NPY files."""
+    candidates = sorted(
+        path for path in input_root.rglob(INPUT_FILENAME)
+        if path.is_file() and (path.parent / LABEL_FILENAME).is_file()
+    )
+    if not candidates:
+        raise FileNotFoundError(
+            f"No directory containing both {INPUT_FILENAME} and {LABEL_FILENAME} "
+            f"was found under {input_root}. Check the dataset attachment in Kaggle."
+        )
+    if len(candidates) > 1:
+        locations = ", ".join(str(path.parent) for path in candidates)
+        raise ValueError(f"Multiple Z24 NPY pairs found under {input_root}: {locations}")
+    inputs = candidates[0]
+    return inputs, inputs.parent / LABEL_FILENAME
+
+
 def resolve_data_source(
     inputs_path: str | Path | None = None,
     labels_path: str | Path | None = None,
@@ -47,10 +65,9 @@ def resolve_data_source(
         _require_file(labels)
         return inputs, labels
 
-    kaggle_inputs = Path("/kaggle/input/dataset/inputs.npy")
-    kaggle_labels = Path("/kaggle/input/dataset/labels.npy")
-    if archive_path is None and kaggle_inputs.is_file() and kaggle_labels.is_file():
-        return kaggle_inputs, kaggle_labels
+    kaggle_input_root = Path("/kaggle/input")
+    if archive_path is None and kaggle_input_root.is_dir():
+        return find_npy_pair(kaggle_input_root)
 
     archive = Path(archive_path) if archive_path else project_root() / "raw_data" / "dataset.zip"
     archive = archive.expanduser().resolve()

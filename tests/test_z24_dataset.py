@@ -1,14 +1,42 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 
 from src.data.z24_dataset import (
     SEGMENTS_PER_RECORDING,
     SETUPS_PER_CONDITION,
+    find_npy_pair,
     normalize_from_train,
     sample_metadata,
     split_by_setup,
 )
+
+
+class DatasetDiscoveryTests(unittest.TestCase):
+    def test_finds_nested_kaggle_dataset_pair(self):
+        with TemporaryDirectory() as directory:
+            dataset = Path(directory) / "datasets" / "owner" / "dataset"
+            dataset.mkdir(parents=True)
+            inputs = dataset / "inputs.npy"
+            labels = dataset / "labels.npy"
+            inputs.touch()
+            labels.touch()
+            self.assertEqual(find_npy_pair(Path(directory)), (inputs, labels))
+
+    def test_rejects_missing_or_ambiguous_pairs(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(FileNotFoundError):
+                find_npy_pair(root)
+            for name in ("first", "second"):
+                dataset = root / name
+                dataset.mkdir()
+                (dataset / "inputs.npy").touch()
+                (dataset / "labels.npy").touch()
+            with self.assertRaises(ValueError):
+                find_npy_pair(root)
 
 
 class Z24GroupingTests(unittest.TestCase):
