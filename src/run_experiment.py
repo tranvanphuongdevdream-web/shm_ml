@@ -139,6 +139,7 @@ def run(action, experiment_name):
     run_id = datetime.now().strftime("%d-%m-%y_%H-%M-%S")
     artifact_dir = output_root / f"{experiment_name}_{run_id}"
     artifact_dir.mkdir(exist_ok=False)
+    print(f"Artifacts directory: {artifact_dir}", flush=True)
     save_json(artifact_dir / "config.json", config)
     save_json(artifact_dir / "dataset.json", dataset_summary(prepared))
 

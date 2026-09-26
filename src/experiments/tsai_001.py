@@ -12,6 +12,23 @@ import pandas as pd
 from src.evaluation import evaluate_predictions, save_evaluation, save_json
 
 
+def training_history_frame(values, metric_names):
+    """Snapshot fastai's training rows with columns that match their width."""
+    rows = [list(row) for row in values]
+    columns = list(metric_names[1:-1])
+    value_width = max((len(row) for row in rows), default=0)
+    if len(columns) != value_width:
+        print(
+            f"Recorder has {value_width} values per epoch but "
+            f"{len(columns)} metric names; using generic names.",
+            flush=True,
+        )
+        columns = [f"metric_{index + 1}" for index in range(value_width)]
+    history = pd.DataFrame(rows, columns=columns)
+    history.insert(0, "epoch", np.arange(1, len(history) + 1))
+    return history
+
+
 def run(config, prepared, artifact_dir):
     try:
         import torch
@@ -87,6 +104,12 @@ def run(config, prepared, artifact_dir):
     synchronize()
     training_seconds = time.perf_counter() - started
 
+    # Prediction helpers can change fastai's Recorder state. Capture the
+    # training history now, before calling get_X_preds on any split.
+    training_history_frame(
+        learner.recorder.values, learner.recorder.metric_names
+    ).to_csv(artifact_dir / "history.csv", index=False)
+
     def predict(values, targets):
         probabilities, _, _ = learner.get_X_preds(
             values,
@@ -119,13 +142,6 @@ def run(config, prepared, artifact_dir):
         validation_indexes=prepared["indexes"]["validation"],
         test_indexes=prepared["indexes"]["test"],
     )
-    values = learner.recorder.values
-    columns = list(learner.recorder.metric_names[1:-1])
-    history = pd.DataFrame(values, columns=columns) if values else pd.DataFrame()
-    if not history.empty:
-        history.insert(0, "epoch", np.arange(1, len(history) + 1))
-    history.to_csv(artifact_dir / "history.csv", index=False)
-
     epoch_seconds = np.asarray(timer.epoch_seconds, dtype=np.float64)
     steady = epoch_seconds[1:] if len(epoch_seconds) > 1 else epoch_seconds
     benchmark = {
