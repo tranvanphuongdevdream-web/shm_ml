@@ -2,13 +2,13 @@
 numpy>=1.26,<3
 pandas>=2.2,<3
 matplotlib>=3.8,<4
-scikit-learn==1.7.2
+scikit-learn>=1.5.2,<2
 tensorflow>=2.20,<3
 pytest>=8,<9
 
 # tsai_001 dependencies. Kaggle keeps its preinstalled CUDA-enabled PyTorch.
-fastai==2.8.12
-imbalanced-learn==0.14.0
+fastai>=2.8.2,<3
+imbalanced-learn>=0.12.4,<1
 pyts==0.13.0
 psutil>=6.1
 tsai==0.4.1
