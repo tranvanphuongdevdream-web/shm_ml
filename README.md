@@ -70,7 +70,7 @@ Each command runs **one** experiment. Native Windows TensorFlow may use the CPU,
 2. Attach the Kaggle Dataset named `dataset`, containing `inputs.npy` and `labels.npy`.
 3. Enable a GPU and open `notebooks/kaggle_runner.ipynb`.
 4. Set `EXPERIMENT_ID` in the first code cell to `dcnn_001`, `dcnn_002`, or `tsai_001`.
-5. Select **Run All**. The notebook clones the repository and runs `python run.py train --experiment <ID>`.
+5. Select **Run All**. The notebook clones the repository, runs `python run.py train --experiment <ID>`, then displays split metrics, the training benchmark, learning curves, and the test confusion matrix.
 
 On Kaggle, the loader finds the attached `inputs.npy` and `labels.npy` together under `/kaggle/input`, including nested paths such as `/kaggle/input/datasets/<owner>/dataset/`. If multiple matching pairs are attached, it stops rather than silently selecting the wrong dataset. Results and the downloadable ZIP are written to `/kaggle/working/results/`. Internet access is needed to clone the repository. For `tsai_001`, the notebook reads dependencies from the single `requirements.txt` and installs tsai with `--no-deps` to preserve Kaggle's CUDA-enabled PyTorch. Each experiment runs in a separate process so its GPU memory is released on exit.
 

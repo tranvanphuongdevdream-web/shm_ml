@@ -118,7 +118,7 @@ def smoke_config(config):
 
 def run(action, experiment_name):
     config = load_config(experiment_name)
-    print(f"Action: {action} | Experiment: {experiment_name}")
+    print(f"Action: {action} | Experiment: {experiment_name}", flush=True)
     if action == "check":
         check_dataset(config)
         return
@@ -126,6 +126,7 @@ def run(action, experiment_name):
         config = smoke_config(config)
         print(f"Smoke test: 1 epoch, batch size {config['batch_size']}; config file unchanged")
 
+    print("Preparing and normalizing dataset...", flush=True)
     prepared = prepare_splits(config)
     print("Prepared dataset:")
     print(json.dumps(dataset_summary(prepared), indent=2))
@@ -141,7 +142,9 @@ def run(action, experiment_name):
     save_json(artifact_dir / "config.json", config)
     save_json(artifact_dir / "dataset.json", dataset_summary(prepared))
 
+    print(f"Loading experiment module: {EXPERIMENT_MODULES[experiment_name]}", flush=True)
     experiment = importlib.import_module(EXPERIMENT_MODULES[experiment_name])
+    print("Starting model training...", flush=True)
     try:
         benchmark = experiment.run(config, prepared, artifact_dir)
     except Exception:
