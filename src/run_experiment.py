@@ -136,7 +136,7 @@ def run(action, experiment_name):
 
     output_root = default_output_root().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    run_id = datetime.now().strftime("%d-%m-%y_%H-%M-%S")
     artifact_dir = output_root / f"{experiment_name}_{run_id}"
     artifact_dir.mkdir(exist_ok=False)
     save_json(artifact_dir / "config.json", config)

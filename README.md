@@ -87,7 +87,7 @@ flowchart TD
     C --> D["src/data/z24_dataset.py<br/>Load → split → change layout → Z-score"]
     D --> E["src/experiments/dcnn_002.py<br/>Build model → train → predict"]
     E --> F["src/evaluation.py<br/>Compare predictions with labels; compute metrics"]
-    F --> G["artifacts/dcnn_002_.../<br/>Model, metrics, config, and plots"]
+    F --> G["artifacts/dcnn_002_26-09-26_05-19-46/<br/>Model, metrics, config, and plots"]
 ```
 
 | File | Example input | Example output |
@@ -97,7 +97,7 @@ flowchart TD
 | `src/data/z24_dataset.py` | `inputs.npy` `(1530, 27, 6000)` and `labels.npy` `(1530,)` | Train `(1020, 6000, 27)`, validation `(170, 6000, 27)`, test `(340, 6000, 27)`; Z-score using training-set statistics |
 | `src/experiments/dcnn_002.py` | Prepared train/validation/test arrays; training batches have shape `(8, 6000, 27)` | Trained model, training history, and predictions for all three splits |
 | `src/evaluation.py` | True labels and predictions, such as `true=[2,4,1]`, `pred=[2,3,1]` | Accuracy, macro precision/recall/F1, and a confusion matrix for each split |
-| `artifacts/dcnn_002_<timestamp>/` | Model, config, split, and metrics | Model file, `split_metrics.csv`, `history.csv`, `experiment.json`, and plots; a smoke run creates no ZIP |
+| `artifacts/dcnn_002_DD-MM-YY_HH-MM-SS/` | Model, config, split, and metrics | Model file, `split_metrics.csv`, `history.csv`, `experiment.json`, and plots; a smoke run creates no ZIP |
 
 Small example of the layout change for `dcnn_002` (the real data has 27 sensors and 6,000 time samples):
 
