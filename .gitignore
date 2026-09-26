@@ -2,6 +2,8 @@
 raw_data/
 processed/
 artifacts/
+kaggle_working/
+results/
 
 # Local Python environments and caches.
 .python_packages/

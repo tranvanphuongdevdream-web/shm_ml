@@ -1,0 +1,23 @@
+{
+  "experiment": "dcnn_002",
+  "seed": 42,
+  "epochs": 100,
+  "batch_size": 32,
+  "train_setups": 6,
+  "validation_setups": 1,
+  "num_classes": 17,
+  "input_layout": "time_sensors",
+  "recurrent_activation": "sigmoid",
+  "optimizer": "adamw",
+  "learning_rate": 0.001,
+  "weight_decay": 0.0001,
+  "dropout_lstm": 0.3,
+  "dropout_dense": 0.5,
+  "l2": 0.0001,
+  "mixed_precision": true,
+  "use_all_gpus": true,
+  "data_pipeline": "tf_data",
+  "early_stopping_monitor": "val_loss",
+  "early_stopping_mode": "min",
+  "early_stopping_patience": 15
+}

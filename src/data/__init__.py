@@ -1,1 +1,1 @@
-"""PDT raw-data cleaning and training-data preparation."""
+"""Dataset loading, validation, splitting, and preprocessing."""

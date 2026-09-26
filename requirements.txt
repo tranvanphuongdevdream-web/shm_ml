@@ -1,9 +1,14 @@
-numpy>=2.0,<3
-matplotlib>=3.8,<4
-jupyterlab>=4.0,<5
-ipykernel>=6.25,<7
-scipy>=1.12,<2
+# Shared dependencies for local checks and Kaggle experiments.
+numpy>=1.26,<3
 pandas>=2.2,<3
-scikit-learn>=1.5,<2
-tensorflow>=2.21,<3
-tsai>=1.0,<2
+matplotlib>=3.8,<4
+scikit-learn==1.7.2
+tensorflow>=2.20,<3
+pytest>=8,<9
+
+# tsai_001 dependencies. Kaggle keeps its preinstalled CUDA-enabled PyTorch.
+fastai==2.8.12
+imbalanced-learn==0.14.0
+pyts==0.13.0
+psutil>=6.1
+tsai==0.4.1

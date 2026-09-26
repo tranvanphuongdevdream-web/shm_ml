@@ -1,0 +1,23 @@
+{
+  "experiment": "dcnn_001",
+  "seed": 42,
+  "epochs": 100,
+  "batch_size": 64,
+  "train_setups": 6,
+  "validation_setups": 1,
+  "num_classes": 17,
+  "input_layout": "sensors_time",
+  "recurrent_activation": "softmax",
+  "optimizer": "adam",
+  "learning_rate": 0.001,
+  "weight_decay": 0.0,
+  "dropout_lstm": 0.0,
+  "dropout_dense": 0.0,
+  "l2": 0.0,
+  "mixed_precision": false,
+  "use_all_gpus": false,
+  "data_pipeline": "numpy",
+  "early_stopping_monitor": "val_accuracy",
+  "early_stopping_mode": "max",
+  "early_stopping_patience": 30
+}
